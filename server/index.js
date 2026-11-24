@@ -1,4 +1,4 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import fs from 'node:fs';
@@ -12,10 +12,43 @@ import teacherRoutes from './routes/teacher.js';
 import adminRoutes from './routes/admin.js';
 import demoRoutes from './routes/demo.js';
 
+// Le logiciel de bureau ne lit pas de fichier .env (réglages dans l'application) ; la version serveur, si.
+if (process.env.APP_MODE !== 'desktop') dotenv.config({ quiet: true });
+
+/** En-têtes de sécurité (équivalent minimal de helmet). */
+function securityHeaders(_req, res, next) {
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.set('X-Frame-Options', 'DENY');
+  res.set('Referrer-Policy', 'no-referrer');
+  res.set(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+  );
+  next();
+}
+
+/**
+ * Protection CSRF : une requête qui modifie des données et vient d'une autre origine
+ * (en-tête Origin d'un autre site) est refusée.
+ */
+function sameOrigin(req, res, next) {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  const origin = req.headers.origin;
+  if (!origin) return next(); // outils en ligne de commande, tests
+  try {
+    if (new URL(origin).host === req.headers.host) return next();
+  } catch {
+    /* origine illisible : refus */
+  }
+  return res.status(403).json({ error: 'forbidden_origin' });
+}
+
 export function createApp() {
   const app = express();
   app.set('trust proxy', 'loopback');
   app.disable('x-powered-by');
+  app.use(securityHeaders);
+  app.use('/api', sameOrigin);
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
 
@@ -40,6 +73,7 @@ export function createApp() {
 
   app.use((err, _req, res, _next) => {
     if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'bad_json' });
+    if (err.status && err.status < 500) return res.status(err.status).json({ error: err.type || 'bad_request' });
     console.error(err);
     res.status(500).json({ error: 'server_error' });
   });

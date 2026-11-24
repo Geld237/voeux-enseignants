@@ -42,6 +42,7 @@ export default function TeacherWizard() {
   const timer = useRef(null);
   const draftRef = useRef(null);
   draftRef.current = draft;
+  const baseRef = useRef(null); // version de la fiche sur le serveur (détection des conflits entre onglets)
 
   /* ---------- Chargement ---------- */
 
@@ -51,8 +52,16 @@ export default function TeacherWizard() {
         setCtx(data);
         setDraft(normalizeDraft(data.response.draft || {}));
         setSave({ state: 'idle', at: data.response.updatedAt });
+        baseRef.current = data.response.updatedAt;
         if (data.response.state === 'submitted') setStep('review');
-        else if (data.profileComplete) setStep(data.response.draft ? 'review' : 'status');
+        else if (data.profileComplete && !data.response.draft) setStep('status');
+        else if (data.profileComplete) {
+          // Reprise : première étape encore incomplète, sinon la validation.
+          const d = normalizeDraft(data.response.draft);
+          const { errors } = validateSubmission(d, { config: data.campaign.config, courses: data.courses, profile: null });
+          const first = ['status', 'wishes', 'availability', 'organisation'].find((k) => errors.some((e) => e.step === k));
+          setStep(first || 'review');
+        }
       })
       .catch((e) => setLoadError(e.status === 401 ? 'session' : 'other'));
   }, []);
@@ -69,13 +78,14 @@ export default function TeacherWizard() {
     dirty.current = false;
     setSave((s) => ({ ...s, state: 'saving' }));
     try {
-      const r = await api('PUT', '/api/teacher/draft', draftRef.current);
+      const r = await api('PUT', '/api/teacher/draft', { ...draftRef.current, baseUpdatedAt: baseRef.current });
+      baseRef.current = r.updatedAt;
       setSave({ state: 'saved', at: r.updatedAt });
       setCtx((c) => ({ ...c, response: { ...c.response, state: r.state, updatedAt: r.updatedAt } }));
       return true;
     } catch (e) {
       dirty.current = true;
-      setSave((s) => ({ ...s, state: e.status === 401 ? 'session' : 'error' }));
+      setSave((s) => ({ ...s, state: e.status === 401 ? 'session' : e.status === 409 ? 'conflict' : 'error' }));
       return false;
     }
   }, []);
@@ -122,9 +132,12 @@ export default function TeacherWizard() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  const errorsRef = useRef(null);
   function next() {
     if (!readOnly && issuesFor(step).length) {
       setShownErrors((s) => ({ ...s, [step]: true }));
+      // Ramène l'enseignant sur le récapitulatif des erreurs (haut de page) au lieu de ne rien faire.
+      requestAnimationFrame(() => errorsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
       return;
     }
     goTo(STEPS[stepIndex + 1].key);
@@ -139,9 +152,11 @@ export default function TeacherWizard() {
       if (!(await flush())) throw new Error('save');
       if (ctx.response.state !== 'draft' && ctx.response.state !== 'submitted') {
         // Rien n'a encore été enregistré (formulaire validé sans modification) : on force un brouillon.
-        await api('PUT', '/api/teacher/draft', draftRef.current);
+        const r0 = await api('PUT', '/api/teacher/draft', { ...draftRef.current, baseUpdatedAt: baseRef.current });
+        baseRef.current = r0.updatedAt;
       }
       const r = await api('POST', '/api/teacher/submit');
+      baseRef.current = r.submittedAt;
       setCtx((c) => ({ ...c, response: { ...c.response, state: 'submitted', submittedAt: r.submittedAt } }));
       setEditing(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -191,12 +206,13 @@ export default function TeacherWizard() {
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             <p className="truncate font-semibold">{campaign.label}</p>
-            <p className="truncate text-xs text-slate-500">
-              {teacher.firstName} {teacher.lastName} · réponse attendue avant le {formatDate(campaign.closesAt)}
+            <p className="truncate text-xs text-slate-600">
+              <span className="hidden sm:inline">{teacher.firstName} {teacher.lastName} · </span>
+              avant le {new Date(campaign.closesAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+              <SaveIndicator save={save} />
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <SaveIndicator save={save} />
             <Button variant="ghost" size="sm" onClick={logout}>Quitter</Button>
           </div>
         </div>
@@ -215,9 +231,19 @@ export default function TeacherWizard() {
             <Button variant="secondary" size="sm" className="mt-3" onClick={() => setEditing(true)}>Modifier ma réponse</Button>
           </Alert>
         )}
-        {editing && ctx.response.state === 'draft' && (
-          <Alert tone="warning">
-            Votre réponse est repassée en brouillon. N&apos;oubliez pas de l&apos;envoyer de nouveau à l&apos;étape « Validation ».
+        {ctx.response.state === 'draft' && ctx.response.submittedAt && !closed && (
+          <Alert tone="warning" title="Modifications non envoyées">
+            Votre réponse du {formatDate(ctx.response.submittedAt)} a été modifiée : elle n&apos;est plus prise en compte par l&apos;équipe programme
+            tant que vous ne l&apos;avez pas renvoyée à l&apos;étape « Validation ».
+            {step !== 'review' && (
+              <Button size="sm" variant="secondary" className="mt-2 ml-0 block" onClick={() => goTo('review')}>Aller à la validation</Button>
+            )}
+          </Alert>
+        )}
+        {save.state === 'conflict' && (
+          <Alert tone="error" title="Fiche modifiée ailleurs">
+            Votre fiche a été modifiée dans un autre onglet ou sur un autre appareil. Rechargez la page pour repartir de la dernière version enregistrée.
+            <Button size="sm" variant="secondary" className="mt-2 block" onClick={() => window.location.reload()}>Recharger</Button>
           </Alert>
         )}
         {save.state === 'session' && (
@@ -225,9 +251,15 @@ export default function TeacherWizard() {
         )}
 
         <div>
-          <p className="text-[13px] font-semibold tracking-wide text-slate-500 uppercase">Étape {stepIndex + 1} sur {STEPS.length}</p>
+          <p className="text-[13px] font-semibold tracking-wide text-slate-600 uppercase">Étape {stepIndex + 1} sur {STEPS.length}</p>
           <h1 className="text-[30px] leading-tight font-bold tracking-tight sm:text-[34px]">{current.title}</h1>
         </div>
+
+        {step !== 'profile' && step !== 'review' && shownErrors[step] && !readOnly && issuesFor(step).length > 0 && (
+          <div ref={errorsRef}>
+            <IssueList issues={issuesFor(step)} />
+          </div>
+        )}
 
         {step === 'profile' && (
           <StepProfile
@@ -256,9 +288,6 @@ export default function TeacherWizard() {
           />
         )}
 
-        {step !== 'profile' && step !== 'review' && shownErrors[step] && !readOnly && (
-          <IssueList issues={issuesFor(step).filter((i) => !i.field?.startsWith('wish-'))} />
-        )}
         {serverIssues && <IssueList issues={serverIssues} />}
       </main>
 
@@ -283,16 +312,19 @@ export default function TeacherWizard() {
   );
 }
 
+/** Indicateur d'enregistrement du brouillon, visible aussi sur téléphone. */
 function SaveIndicator({ save }) {
   const map = {
-    saving: ['Enregistrement…', 'text-slate-500'],
-    saved: [`Enregistré à ${save.at ? formatTime(save.at) : ''}`, 'text-emerald-700'],
+    saving: ['Enregistrement…', 'text-slate-600'],
+    saved: [`✓ Enregistré à ${save.at ? formatTime(save.at) : ''}`, 'text-emerald-700'],
     error: ['Non enregistré — nouvel essai à la prochaine modification', 'text-red-700'],
     session: ['Session expirée', 'text-red-700'],
-    idle: [save.at ? `Brouillon du ${formatDate(save.at)}` : '', 'text-slate-400'],
+    conflict: ['Non enregistré — fiche modifiée ailleurs', 'text-red-700'],
+    idle: [save.at ? `✓ Brouillon du ${formatDate(save.at)}` : '', 'text-slate-600'],
   };
   const [label, color] = map[save.state];
-  return <span className={`hidden text-xs sm:inline ${color}`} aria-live="polite">{label}</span>;
+  if (!label) return null;
+  return <span className={`font-medium ${color}`} aria-live="polite"> · {label}</span>;
 }
 
 function Stepper({ current, onSelect, locked, validation, issuesFor }) {
@@ -303,17 +335,17 @@ function Stepper({ current, onSelect, locked, validation, issuesFor }) {
         const disabled = locked && s.key !== 'profile';
         const hasError = validation[s.key] && issuesFor(s.key).length > 0;
         return (
-          <li key={s.key} className="min-w-0 flex-1">
+          <li key={s.key} className={`min-w-0 ${active ? 'flex-[3] sm:flex-1' : 'flex-1'}`}>
             <button
               onClick={() => onSelect(s.key)}
               disabled={disabled}
               aria-current={active ? 'step' : undefined}
-              className={`w-full border-t-4 pt-2 text-left text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                active ? 'border-blue-900 text-blue-900' : hasError ? 'border-red-400 text-red-700' : 'border-slate-200 text-slate-500 hover:border-slate-300'
+              className={`min-h-11 w-full border-t-4 pt-2 text-left text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:text-slate-400 ${
+                hasError ? 'border-red-600 text-red-700' : active ? 'border-blue-900 text-blue-900' : 'border-slate-200 text-slate-600 hover:border-slate-300'
               }`}
             >
               <span className="block whitespace-nowrap">
-                <span className="sm:hidden">{i + 1}</span>
+                <span className="sm:hidden">{active ? `${i + 1}. ${s.label}` : i + 1}</span>
                 <span className="hidden sm:inline">{i + 1}. {s.label}</span>
               </span>
             </button>

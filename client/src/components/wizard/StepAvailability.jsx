@@ -9,7 +9,7 @@ import { availabilityStats, slotKey } from '@shared/schemas.js';
 import { Button, Card, Field, Select, inputClass } from '../ui.jsx';
 
 export const LEVELS = {
-  preferred: { label: 'Préféré', cell: 'bg-emerald-600 text-white', chip: 'bg-emerald-600', symbol: '★' },
+  preferred: { label: 'Préféré', cell: 'bg-emerald-700 text-white', chip: 'bg-emerald-600', symbol: '★' },
   possible: { label: 'Possible', cell: 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200', chip: 'bg-emerald-50 ring-1 ring-emerald-300', symbol: '✓' },
   avoid: { label: 'À éviter', cell: 'bg-amber-300 text-amber-950', chip: 'bg-amber-300', symbol: '~' },
   unavailable: { label: 'Impossible', cell: 'bg-slate-700 text-white', chip: 'bg-slate-700', symbol: '✕' },
@@ -48,7 +48,7 @@ export default function StepAvailability({ draft, update, config, readOnly, show
   return (
     <div className="space-y-5">
       <p className="text-sm text-slate-600">
-        Choisissez un niveau puis touchez les cases. Toucher un jour ou un horaire remplit toute la colonne ou la ligne.
+        Choisissez un niveau puis touchez les cases (toucher à nouveau une case l&apos;efface). Toucher un jour ou un horaire remplit toute la colonne ou la ligne.
         Toutes les cases doivent être renseignées.
       </p>
 
@@ -72,7 +72,7 @@ export default function StepAvailability({ draft, update, config, readOnly, show
               <th className="w-14 sm:w-20" />
               {config.days.map((d) => (
                 <th key={d.key} className="font-medium text-slate-700">
-                  <button type="button" disabled={readOnly} onClick={() => paint(config.slots.map((s) => [d.key, s]), true)}
+                  <button type="button" disabled={readOnly} onClick={() => paint(config.slots.map((s) => [d.key, s]))}
                     className="w-full rounded py-1 hover:bg-slate-100 disabled:hover:bg-transparent">
                     <span className="sm:hidden">{d.short}</span>
                     <span className="hidden sm:inline">{d.label}</span>
@@ -85,7 +85,7 @@ export default function StepAvailability({ draft, update, config, readOnly, show
             {config.slots.map((s) => (
               <tr key={s}>
                 <th className="text-left text-xs font-normal whitespace-nowrap text-slate-500">
-                  <button type="button" disabled={readOnly} onClick={() => paint(config.days.map((d) => [d.key, s]), true)}
+                  <button type="button" disabled={readOnly} onClick={() => paint(config.days.map((d) => [d.key, s]))}
                     className="rounded px-1 py-1 text-left hover:bg-slate-100 disabled:hover:bg-transparent">
                     {fmtSlot(s).map((t, i) => <span key={i} className="block leading-tight">{t}</span>)}
                   </button>
@@ -127,7 +127,7 @@ export default function StepAvailability({ draft, update, config, readOnly, show
         <label className="flex flex-row-reverse items-center justify-between gap-4 text-sm">
           <input type="checkbox" className="ios-switch" checked={!!draft.early8h} disabled={readOnly}
             onChange={(e) => update({ early8h: e.target.checked })} />
-          <span>Je peux commencer à <strong>8h00</strong> si nécessaire (au lieu de 8h30).</span>
+          <span>Je peux commencer à <strong>8h00</strong> si nécessaire (avant le premier créneau de {fmtSlot(config.slots[0])[0]}).</span>
         </label>
         <Field label="Disponible à partir de">
           <Select value={draft.availableFromWeek} disabled={readOnly} onChange={(v) => update({ availableFromWeek: v })}

@@ -24,8 +24,15 @@ export default function AdminGroups() {
     return { semester: x.semester, name: x.name, type: x.type, parcours: x.parcours || null, parentId: x.parentId ?? null, size: x.size ?? null, sort: x.sort };
   };
   const save = (g, patch) => run(() => api('PUT', `/api/admin/groups/${g.id}`, payload(g, patch))).then(setGroups);
-  const remove = (g) =>
-    window.confirm(`Supprimer le groupe ${g.name} ?`) && run(() => api('DELETE', `/api/admin/groups/${g.id}`), `Groupe ${g.name} supprimé.`).then(setGroups);
+  const remove = async (g) => {
+    const impact = await api('GET', `/api/admin/groups/${g.id}/impact`).catch(() => ({ assignments: 0, tps: 0 }));
+    const details = [
+      impact.tps ? `ses ${impact.tps} groupe(s) de TP ne seront plus rattachés à un TD` : null,
+      impact.assignments ? `${impact.assignments} affectation(s) d'enseignant sur ce groupe seront supprimées` : null,
+    ].filter(Boolean);
+    if (!window.confirm(`Supprimer le groupe ${g.name} ?${details.length ? `\n\nAttention : ${details.join(' ; ')}.` : ''}`)) return;
+    run(() => api('DELETE', `/api/admin/groups/${g.id}`), (r) => `Groupe ${g.name} supprimé${r.removedAssignments ? ` (${r.removedAssignments} affectation(s) retirée(s))` : ''}.`).then(setGroups);
+  };
   const total = tds.reduce((s, g) => s + (g.size || 0), 0);
 
   return (
@@ -44,7 +51,7 @@ export default function AdminGroups() {
       <div className="flex flex-wrap gap-1.5">
         {data.semesters.map((s) => (
           <Chip key={s.key} active={semester === s.key} onClick={() => setSemester(s.key)}>
-            {s.label} <span className="opacity-70">({data.groups.filter((g) => g.semester === s.key && g.type === 'TD').length} TD)</span>
+            {s.label}&nbsp;<span className="opacity-70">({data.groups.filter((g) => g.semester === s.key && g.type === 'TD').length} TD)</span>
           </Chip>
         ))}
       </div>
@@ -154,26 +161,10 @@ function AddGroup({ data, semester, tds, run, onDone }) {
   );
 }
 
-/** Crée d'un coup N TD (TD1…TDn) et leurs TP (TP1A, TP1B…). */
+/** Crée d'un coup N TD (TD1…TDn) et leurs TP (TP1A, TP1B…) ; les noms déjà pris sont ignorés. */
 function Generate({ data, semester, run, onDone }) {
   const [p, setP] = useState({ prefix: 'TD', count: 5, tpPerTd: 2, size: 28, parcours: null });
-  async function generate() {
-    let last = null;
-    for (let i = 1; i <= p.count; i += 1) {
-      const name = `${p.prefix}${i}`;
-      const r = await api('POST', '/api/admin/groups', { semester, type: 'TD', name, parcours: p.parcours, size: p.size || null });
-      const td = r.groups.find((g) => g.semester === semester && g.name === name);
-      last = r;
-      for (let k = 0; k < p.tpPerTd; k += 1) {
-        const tpName = `${p.prefix.replace(/^TD/i, 'TP')}${i}${'ABCDE'[k]}`;
-        last = await api('POST', '/api/admin/groups', {
-          semester, type: 'TP', name: tpName === name ? `${name}-${'ABCDE'[k]}` : tpName, parcours: p.parcours, parentId: td.id,
-          size: p.size ? Math.ceil(p.size / p.tpPerTd) : null,
-        });
-      }
-    }
-    return last;
-  }
+  const generate = () => api('POST', '/api/admin/groups/generate', { ...p, semester, size: p.size || null });
   return (
     <Card className="space-y-3 p-4">
       <div className="grid gap-3 sm:grid-cols-5">
@@ -186,9 +177,12 @@ function Generate({ data, semester, run, onDone }) {
         </Field>
       </div>
       <p className="text-sm text-slate-500">
-        Créera {p.prefix}1 à {p.prefix}{p.count}{p.tpPerTd ? `, chacun avec ${p.tpPerTd} TP (${p.prefix.replace(/^TD/i, 'TP')}1A…)` : ''} en {semester}. Les noms déjà utilisés provoquent une erreur.
+        Créera {p.prefix}1 à {p.prefix}{p.count}{p.tpPerTd ? `, chacun avec ${p.tpPerTd} TP (${p.prefix.replace(/^TD/i, 'TP')}1A…)` : ''} en {semester}. Les noms déjà utilisés sont ignorés.
       </p>
-      <Button disabled={!p.prefix.trim() || !(p.count > 0)} onClick={() => run(generate, 'Groupes créés.').then(onDone)}>Générer</Button>
+      <Button disabled={!p.prefix.trim() || !(p.count > 0)}
+        onClick={() => run(generate, (r) => `${r.created.length} groupe(s) créé(s).${r.skipped.length ? ` Déjà existants, ignorés : ${r.skipped.join(', ')}.` : ''}`).then(onDone)}>
+        Générer
+      </Button>
     </Card>
   );
 }

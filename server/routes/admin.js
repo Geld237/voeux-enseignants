@@ -25,12 +25,13 @@ import { inviteTeachers } from '../lib/invitations.js';
 import { equivalentTD, formatWeeks, ROOM_NEEDS } from '../../shared/schemas.js';
 import { WEEK_KINDS } from '../../shared/calendar.js';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { projectRoot } from '../db/connection.js';
 import { issueToken } from '../lib/tokens.js';
 import { sendTestEmail } from '../lib/mailer.js';
 import {
-  appUrl, getSetting, setSetting, lanAddresses, isDesktop, mailConfigured, passwordSource, checkPassword, hashPassword,
+  appUrl, getSetting, setSetting, lanAddresses, isDesktop, mailConfigured, passwordSource, checkPassword, hashPassword, demoMode,
 } from '../lib/settings.js';
 
 const router = Router();
@@ -49,7 +50,7 @@ function parse(schema, body, res) {
 }
 const conflict = (res, message) => res.status(409).json({ error: 'conflict', message });
 const isUnique = (e) => /UNIQUE/.test(String(e?.message));
-const optNum = z.number().min(0).max(2000).nullable().optional();
+const optNum = z.number({ error: 'Nombre attendu' }).min(0, 'Le volume ne peut pas être négatif').max(2000, 'Volume trop grand (2000 h maximum)').nullable().optional();
 const str = (max) => z.string().trim().max(max);
 
 /** Découpe un texte collé depuis Excel (tabulations), un CSV (; ou ,) ou une liste. */
@@ -83,11 +84,17 @@ const weekSchema = z.object({
 });
 const campaignSchema = z.object({
   label: str(120).min(1),
-  opensAt: z.string().min(10),
-  closesAt: z.string().min(10),
-  weeks: z.array(weekSchema).min(1).max(60),
+  opensAt: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Date d\u2019ouverture invalide'),
+  closesAt: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Date de clôture invalide'),
+  weeks: z.array(weekSchema).min(1, 'Déclarez au moins une semaine').max(53, 'Le calendrier ne peut pas dépasser 53 semaines'),
   publicHolidays: z.array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), label: str(80).default('') })).max(40),
-  slots: z.array(z.string().regex(/^\d{2}:\d{2}-\d{2}:\d{2}$/, 'Format attendu : 08:30-10:00')).min(1).max(12),
+  slots: z
+    .array(z.string().regex(/^\d{2}:\d{2}-\d{2}:\d{2}$/, 'Créneau incomplet : indiquez l’heure de début et de fin'))
+    .min(1, 'Au moins un créneau horaire')
+    .max(12)
+    .refine((xs) => xs.every((x) => x.slice(0, 5) < x.slice(6)), 'Un créneau finit avant de commencer')
+    .refine((xs) => new Set(xs).size === xs.length, 'Deux créneaux sont identiques')
+    .refine((xs) => [...xs].sort().every((x, i, a) => i === 0 || a[i - 1].slice(6) <= x.slice(0, 5)), 'Deux créneaux se chevauchent'),
   saeFromWeek: z.number().int().min(1).max(53).nullable(),
 });
 
@@ -99,6 +106,8 @@ router.put('/campaign', (req, res) => {
   const nums = data.weeks.map((w) => w.week);
   if (new Set(nums).size !== nums.length) return conflict(res, 'Une même semaine apparaît deux fois : le calendrier doit couvrir moins d’un an.');
   if (data.closesAt <= data.opensAt) return conflict(res, 'La date de clôture doit être après la date d’ouverture.');
+  if (new Set(data.publicHolidays.map((h) => h.date)).size !== data.publicHolidays.length) return conflict(res, 'Un même jour férié est déclaré deux fois.');
+  data.slots = [...data.slots].sort();
   const row = db.prepare('SELECT config FROM campaigns WHERE id = ?').get(c.id);
   const config = { ...JSON.parse(row.config), weeks: data.weeks, publicHolidays: data.publicHolidays, slots: data.slots, saeFromWeek: data.saeFromWeek };
   db.prepare('UPDATE campaigns SET label = ?, opens_at = ?, closes_at = ?, config = ? WHERE id = ?').run(
@@ -114,7 +123,7 @@ function teacherRows(c) {
     .prepare(
       `SELECT t.id, t.last_name AS lastName, t.first_name AS firstName, t.email, t.contact_email AS contactEmail, t.phone,
               COALESCE(r.state, 'not_started') AS state, r.submitted_at AS submittedAt, r.updated_at AS updatedAt, r.data,
-              (SELECT MAX(sent_at) FROM email_log e WHERE e.teacher_id = t.id AND e.kind = 'invitation' AND e.status = 'sent') AS invitedAt
+              (SELECT MAX(sent_at) FROM email_log e WHERE e.teacher_id = t.id AND e.kind = 'invitation' AND e.status IN ('sent', 'queued')) AS invitedAt
          FROM teachers t LEFT JOIN responses r ON r.teacher_id = t.id AND r.campaign_id = ?
         ORDER BY t.last_name, t.first_name`
     )
@@ -126,8 +135,11 @@ function teacherRows(c) {
   }
   return rows.map(({ data, ...t }) => {
     const d = data ? JSON.parse(data) : null;
+    const st = c.config.statuses.find((x) => x.value === d?.teacherStatus);
     return {
       ...t,
+      serviceHours: st?.serviceHours ?? null,
+      maxHours: st?.maxHours ?? null,
       teacherStatus: d?.teacherStatus ?? null,
       requestedEqTD: d ? equivalentTD(d.wishes || [], c.config.coefficients) : 0,
       assignedEqTD: Math.round((assigned.get(t.id) || 0) * 100) / 100,
@@ -201,15 +213,16 @@ router.post('/invite', async (req, res) => {
   let ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number) : [];
   if (req.body?.mode === 'all') ids = db.prepare('SELECT id FROM teachers').all().map((t) => t.id);
   if (req.body?.mode === 'pending') ids = teacherRows(c).filter((t) => t.state !== 'submitted').map((t) => t.id);
-  const sent = await inviteTeachers(c, ids);
-  res.json({ sent, teachers: teacherRows(c) });
+  const r = await inviteTeachers(c, ids);
+  res.json({ ...r, teachers: teacherRows(c) });
 });
 
 router.post('/teachers/:id/link', (req, res) => {
   const c = campaignOf();
   const t = db.prepare('SELECT id FROM teachers WHERE id = ?').get(Number(req.params.id));
   if (!t) return res.status(404).json({ error: 'not_found' });
-  const { url, expiresAt } = issueToken({ teacherId: t.id, campaignId: c.id });
+  // Lien supplémentaire : ceux déjà transmis à l'enseignant restent valables.
+  const { url, expiresAt } = issueToken({ teacherId: t.id, campaignId: c.id, revokePrevious: false });
   db.prepare("INSERT INTO email_log (teacher_id, kind, recipient, subject, status) VALUES (?, 'invitation', '(lien copié)', 'Lien copié par l''équipe programme', 'sent')").run(t.id);
   res.json({ url, expiresAt, teachers: teacherRows(c) });
 });
@@ -254,7 +267,9 @@ function repartition(c) {
       .map((a) => ({ type: a.type, groupName: a.group_name, teacherId: a.teacher_id, teacher: teachers.get(a.teacher_id), hours: a.hours }));
     const assigned = { CM: 0, TD: 0, TP: 0 };
     for (const a of assignments) assigned[a.type] += a.hours;
-    return { ...course, groupsTD: td.map((g) => g.name), groupsTP: tp.map((g) => g.name), need, requested, assigned, wishes, assignments };
+    const known = new Set(scope.map((g) => g.name));
+    const orphanAssignments = assignments.filter((a) => a.type !== 'CM' && !known.has(a.groupName));
+    return { ...course, groupsTD: td.map((g) => g.name), groupsTP: tp.map((g) => g.name), need, requested, assigned, wishes, assignments, orphanAssignments };
   });
 }
 
@@ -316,7 +331,11 @@ router.put('/courses/:id', (req, res) => {
 
 router.delete('/courses/:id', (req, res) => {
   const c = campaignOf();
-  db.prepare('DELETE FROM courses WHERE id = ? AND campaign_id = ?').run(Number(req.params.id), c.id);
+  const id = Number(req.params.id);
+  db.transaction(() => {
+    db.prepare('DELETE FROM courses WHERE id = ? AND campaign_id = ?').run(id, c.id);
+    R.purgeCourseFromResponses(c.id, id); // les fiches ne gardent pas de vœu « fantôme »
+  })();
   res.json({ courses: repartition(c) });
 });
 
@@ -375,8 +394,10 @@ router.put('/assignments', (req, res) => {
   const a = parse(assignmentSchema, req.body, res);
   if (!a) return;
   const groupName = a.type === 'CM' ? '' : a.groupName;
+  if (!db.prepare('SELECT 1 FROM courses WHERE id = ? AND campaign_id = ?').get(a.courseId, c.id)) return res.status(404).json({ error: 'not_found', message: 'Ressource introuvable.' });
+  if (a.teacherId !== null && !db.prepare('SELECT 1 FROM teachers WHERE id = ?').get(a.teacherId)) return res.status(404).json({ error: 'not_found', message: 'Enseignant introuvable.' });
   if (a.teacherId === null) {
-    db.prepare('DELETE FROM assignments WHERE course_id = ? AND type = ? AND group_name = ?').run(a.courseId, a.type, groupName);
+    db.prepare('DELETE FROM assignments WHERE course_id = ? AND type = ? AND group_name = ? AND campaign_id = ?').run(a.courseId, a.type, groupName, c.id);
   } else {
     db.prepare(
       `INSERT INTO assignments (campaign_id, course_id, type, group_name, teacher_id, hours, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -430,9 +451,11 @@ router.put('/groups/:id', (req, res) => {
       db.prepare('UPDATE groups SET semester = ?, name = ?, type = ?, parcours = ?, parent_id = ?, size = ?, sort = ? WHERE id = ?').run(
         g.semester, g.name, g.type, g.parcours || null, g.type === 'TP' ? g.parentId ?? null : null, g.size ?? null, g.sort ?? old.sort, old.id
       );
-      // Un renommage suit dans les affectations (les vœux déjà saisis gardent l'ancien nom).
-      if (old.name !== g.name) {
-        db.prepare('UPDATE assignments SET group_name = ? WHERE campaign_id = ? AND group_name = ?').run(g.name, c.id, old.name);
+      // Un renommage suit dans les affectations et les fiches, uniquement pour les ressources du même semestre.
+      if (old.name !== g.name) renameGroupEverywhere(c.id, old.semester, old.name, g.name);
+      // Le parcours d'un TD s'applique à ses TP.
+      if (g.type === 'TD' && (old.parcours || null) !== (g.parcours || null)) {
+        db.prepare('UPDATE groups SET parcours = ? WHERE parent_id = ?').run(g.parcours || null, old.id);
       }
     })();
   } catch (e) {
@@ -444,9 +467,96 @@ router.put('/groups/:id', (req, res) => {
 
 router.delete('/groups/:id', (req, res) => {
   const c = campaignOf();
-  db.prepare('DELETE FROM groups WHERE id = ? AND campaign_id = ?').run(Number(req.params.id), c.id);
-  res.json({ groups: R.getGroups(c.id) });
+  const g = db.prepare('SELECT * FROM groups WHERE id = ? AND campaign_id = ?').get(Number(req.params.id), c.id);
+  if (!g) return res.status(404).json({ error: 'not_found' });
+  let removed = 0;
+  db.transaction(() => {
+    removed = db.prepare(
+      `DELETE FROM assignments WHERE campaign_id = ? AND group_name = ?
+         AND course_id IN (SELECT id FROM courses WHERE campaign_id = ? AND semester = ?)`
+    ).run(c.id, g.name, c.id, g.semester).changes;
+    db.prepare('DELETE FROM groups WHERE id = ?').run(g.id);
+  })();
+  res.json({ groups: R.getGroups(c.id), removedAssignments: removed });
 });
+
+/** Groupes (et TP) touchés par la suppression d'un groupe : pour la confirmation. */
+router.get('/groups/:id/impact', (req, res) => {
+  const c = campaignOf();
+  const g = db.prepare('SELECT * FROM groups WHERE id = ? AND campaign_id = ?').get(Number(req.params.id), c.id);
+  if (!g) return res.status(404).json({ error: 'not_found' });
+  const assignments = db.prepare(
+    `SELECT COUNT(*) n FROM assignments WHERE campaign_id = ? AND group_name = ?
+       AND course_id IN (SELECT id FROM courses WHERE campaign_id = ? AND semester = ?)`
+  ).get(c.id, g.name, c.id, g.semester).n;
+  const tps = db.prepare('SELECT COUNT(*) n FROM groups WHERE parent_id = ?').get(g.id).n;
+  res.json({ assignments, tps });
+});
+
+/** Création d'une série de TD (et de leurs TP) en une seule opération ; les noms existants sont ignorés. */
+router.post('/groups/generate', (req, res) => {
+  const c = campaignOf();
+  const p = parse(z.object({
+    semester: str(10).min(1), prefix: str(20).min(1), count: z.number().int().min(1).max(30),
+    tpPerTd: z.number().int().min(0).max(5), size: z.number().int().min(0).max(1000).nullable().optional(), parcours: str(20).nullable().optional(),
+  }), req.body, res);
+  if (!p) return;
+  const created = [];
+  const skipped = [];
+  const exists = (name) => db.prepare('SELECT id FROM groups WHERE campaign_id = ? AND semester = ? AND name = ?').get(c.id, p.semester, name);
+  let sort = db.prepare('SELECT COALESCE(MAX(sort), 0) AS n FROM groups WHERE campaign_id = ?').get(c.id).n;
+  const ins = db.prepare('INSERT INTO groups (campaign_id, semester, name, type, parcours, parent_id, size, sort) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  db.transaction(() => {
+    for (let i = 1; i <= p.count; i += 1) {
+      const name = `${p.prefix}${i}`;
+      let td = exists(name);
+      if (td) skipped.push(name);
+      else {
+        td = { id: ins.run(c.id, p.semester, name, 'TD', p.parcours || null, null, p.size || null, (sort += 1)).lastInsertRowid };
+        created.push(name);
+      }
+      for (let k = 0; k < p.tpPerTd; k += 1) {
+        const base = p.prefix.replace(/^TD/i, 'TP');
+        const tpName = base === p.prefix ? `${name}-${'ABCDE'[k]}` : `${base}${i}${'ABCDE'[k]}`;
+        if (exists(tpName)) skipped.push(tpName);
+        else {
+          ins.run(c.id, p.semester, tpName, 'TP', p.parcours || null, td.id, p.size ? Math.ceil(p.size / p.tpPerTd) : null, (sort += 1));
+          created.push(tpName);
+        }
+      }
+    }
+  })();
+  res.json({ created, skipped, groups: R.getGroups(c.id) });
+});
+
+function renameGroupEverywhere(campaignId, semester, oldName, newName) {
+  db.prepare(
+    `UPDATE assignments SET group_name = ? WHERE campaign_id = ? AND group_name = ?
+       AND course_id IN (SELECT id FROM courses WHERE campaign_id = ? AND semester = ?)`
+  ).run(newName, campaignId, oldName, campaignId, semester);
+  const courseIds = new Set(db.prepare('SELECT id FROM courses WHERE campaign_id = ? AND semester = ?').all(campaignId, semester).map((x) => x.id));
+  for (const r of db.prepare('SELECT id, data FROM responses WHERE campaign_id = ?').all(campaignId)) {
+    const d = JSON.parse(r.data || '{}');
+    let changed = false;
+    for (const w of d.wishes || []) {
+      if (!courseIds.has(w.courseId)) continue;
+      for (const iv of w.interventions || []) {
+        if (iv.groups?.includes(oldName)) {
+          iv.groups = iv.groups.map((x) => (x === oldName ? newName : x));
+          changed = true;
+        }
+      }
+    }
+    if (changed) db.prepare('UPDATE responses SET data = ? WHERE id = ?').run(JSON.stringify(d), r.id);
+    // la vue « à plat » suit
+    if (changed) {
+      for (const w of db.prepare('SELECT id, groups FROM wishes WHERE response_id = ? AND course_id IN (' + [...courseIds].join(',') + ')').all(r.id)) {
+        const gs = JSON.parse(w.groups).map((x) => (x === oldName ? newName : x));
+        db.prepare('UPDATE wishes SET groups = ? WHERE id = ?').run(JSON.stringify(gs), w.id);
+      }
+    }
+  }
+}
 
 /* ---------- salles ---------- */
 
@@ -503,10 +613,51 @@ router.delete('/rooms/:id', (req, res) => {
 
 /* ---------- export ---------- */
 
+/** Cellule CSV : neutralise les formules (= + - @ en tête, injection dans Excel) puis échappe. */
 const csvCell = (v) => {
-  const s = v === null || v === undefined ? '' : String(v);
-  return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  let s = v === null || v === undefined ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
+
+/** Nombre au format français (virgule décimale) pour Excel. */
+const frNum = (n) => (n === null || n === undefined || n === '' ? '' : String(Math.round(Number(n) * 100) / 100).replace('.', ','));
+const sendCsv = (res, filename, lines) => {
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send('\uFEFF' + lines.map((l) => l.map(csvCell).join(';')).join('\r\n'));
+};
+
+/**
+ * Export du tableau de répartition (préparation Hyperplanning et des services) :
+ * une ligne par CM / groupe de TD / groupe de TP de chaque ressource, avec l'enseignant affecté
+ * (ou « À affecter »), les heures affectées et le volume du programme.
+ */
+router.get('/export-repartition.csv', (_req, res) => {
+  const c = campaignOf();
+  const lines = [['Semestre', 'Parcours', 'Code', 'Code Apogée', 'Intitulé', 'Type', 'Groupe', 'Effectif', 'Enseignant', 'E-mail', 'Heures affectées', 'Volume programme / groupe', 'État']];
+  const teachers = new Map(db.prepare('SELECT id, last_name, first_name, COALESCE(contact_email, email) AS email FROM teachers').all().map((t) => [t.id, t]));
+  const sizes = new Map(R.getGroups(c.id).map((g) => [`${g.semester}/${g.name}`, g.size]));
+  for (const course of repartition(c)) {
+    const slots = [
+      ...(course.pnCm != null || course.assignments.some((a) => a.type === 'CM') ? [['CM', '']] : []),
+      ...(course.pnTd != null || course.assignments.some((a) => a.type === 'TD') ? course.groupsTD.map((g) => ['TD', g]) : []),
+      ...(course.pnTp != null || course.assignments.some((a) => a.type === 'TP') ? course.groupsTP.map((g) => ['TP', g]) : []),
+      ...course.orphanAssignments.map((a) => [a.type, a.groupName]),
+    ];
+    for (const [type, group] of slots) {
+      const a = course.assignments.find((x) => x.type === type && x.groupName === group);
+      const t = a ? teachers.get(a.teacherId) : null;
+      const pn = { CM: course.pnCm, TD: course.pnTd, TP: course.pnTp }[type];
+      lines.push([
+        course.semester, course.parcours || 'Tronc commun', course.code, course.apogee, course.title, type, group || 'Promotion',
+        group ? sizes.get(`${course.semester}/${group}`) ?? '' : '', t ? `${t.last_name} ${t.first_name}` : 'À affecter', t?.email || '',
+        a ? frNum(a.hours) : '', frNum(pn), !a ? 'non affecté' : course.orphanAssignments.includes(a) ? 'groupe supprimé' : 'affecté',
+      ]);
+    }
+  }
+  sendCsv(res, 'repartition.csv', lines);
+});
 
 router.get('/export.csv', (_req, res) => {
   const c = campaignOf();
@@ -532,17 +683,14 @@ router.get('/export.csv', (_req, res) => {
           r.last_name, r.first_name, r.email, r.phone, r.state === 'submitted' ? 'envoyée' : 'brouillon',
           course.code, course.apogee, course.title, course.semester, course.parcours || 'Tronc commun', iv.type,
           iv.type === 'CM' ? 'promotion' : iv.groups.length ? iv.groups.join(' ') : `${iv.anyGroups} au choix`,
-          iv.hoursPerGroup, iv.sessionLength, Math.ceil(iv.hoursPerGroup / iv.sessionLength - 1e-9),
+          frNum(iv.hoursPerGroup), frNum(iv.sessionLength), Math.ceil(iv.hoursPerGroup / iv.sessionLength - 1e-9),
           iv.anyWeeks ? 'indifférent' : formatWeeks(iv.weeks, c.config), (w.preferredRooms || []).join(' '),
-          mine.map((a) => a.group_name || 'promotion').join(' '), mine.reduce((s, a) => s + a.hours, 0) || '',
+          mine.map((a) => a.group_name || 'promotion').join(' '), frNum(mine.reduce((s, a) => s + a.hours, 0) || ''),
         ]);
       }
     }
   }
-  const csv = '﻿' + lines.map((l) => l.map(csvCell).join(';')).join('\r\n');
-  res.set('Content-Type', 'text/csv; charset=utf-8');
-  res.set('Content-Disposition', 'attachment; filename="voeux-export.csv"');
-  res.send(csv);
+  sendCsv(res, 'voeux-export.csv', lines);
 });
 
 router.get('/export.json', (_req, res) => {
@@ -583,6 +731,7 @@ function settingsView() {
     hasSmtpPass: Boolean(getSetting('smtpPass')),
     mailFrom: getSetting('mailFrom') || '',
     mailConfigured: mailConfigured(),
+    demo: demoMode(),
     passwordSource: passwordSource(),
     outboxCount: db.prepare('SELECT COUNT(*) n FROM dev_outbox').get().n,
   };
@@ -602,6 +751,10 @@ const settingsSchema = z.object({
 router.put('/settings', (req, res) => {
   const d = parse(settingsSchema, req.body, res);
   if (!d) return;
+  if (d.smtpHost && passwordSource() === 'demo') {
+    // Sinon le mode démo s'arrête et le mot de passe « demo » cesse de fonctionner : plus personne ne pourrait se connecter.
+    return conflict(res, 'Choisissez d\u2019abord un vrai mot de passe (section « Mot de passe » ci-dessous), puis configurez l\u2019e-mail.');
+  }
   for (const [k, v] of Object.entries(d)) if (v !== undefined) setSetting(k, k === 'appUrl' ? v.replace(/\/$/, '') : v);
   res.json(settingsView());
 });
@@ -622,6 +775,8 @@ router.put('/password', (req, res) => {
   if (passwordSource() && !checkPassword(req.body?.current)) return res.status(401).json({ error: 'bad_password', message: 'Mot de passe actuel incorrect.' });
   if (next.length < 8) return res.status(422).json({ error: 'validation', message: 'Le nouveau mot de passe doit contenir au moins 8 caractères.' });
   setSetting('passwordHash', hashPassword(next));
+  const mine = req.cookies?.sid ? crypto.createHash('sha256').update(String(req.cookies.sid)).digest('hex') : '';
+  db.prepare("DELETE FROM sessions WHERE role = 'admin' AND id_hash <> ?").run(mine);
   res.json(settingsView());
 });
 

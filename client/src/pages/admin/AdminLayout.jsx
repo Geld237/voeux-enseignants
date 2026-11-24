@@ -22,7 +22,25 @@ export const TABS = [
 export default function AdminLayout() {
   const [auth, setAuth] = useState(null);
   const [campaign, setCampaign] = useState(null);
+  const [dirty, setDirty] = useState(false); // modifications non enregistrées dans l'onglet courant
   const location = useLocation();
+  useEffect(() => {
+    const warn = (e) => {
+      if (dirty) e.preventDefault();
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+  /** À appeler avant de quitter l'onglet : demande confirmation s'il reste des modifications. */
+  const confirmLeave = useCallback(() => {
+    if (!dirty) return true;
+    const ok = window.confirm('Vous avez des modifications non enregistrées. Les abandonner ?');
+    if (ok) setDirty(false);
+    return ok;
+  }, [dirty]);
+  const guard = (e) => {
+    if (!confirmLeave()) e.preventDefault();
+  };
 
   const loadCampaign = useCallback(() => api('GET', '/api/admin/campaign').then((r) => setCampaign(r.campaign)).catch(() => {}), []);
   const loadAuth = useCallback(() => api('GET', '/api/auth/admin').then(setAuth).catch(() => setAuth({ admin: false })), []);
@@ -57,7 +75,7 @@ export default function AdminLayout() {
         </div>
         <nav className="overflow-hidden rounded-2xl bg-white" aria-label="Sections">
           {TABS.map((t, i) => (
-            <NavLink key={t.to} to={t.to}
+            <NavLink key={t.to} to={t.to} onClick={guard}
               className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 text-[15px] transition-colors ${
                 isActive ? 'bg-blue-900 text-white' : 'text-slate-900 hover:bg-slate-50'}`}>
               {({ isActive }) => (
@@ -86,15 +104,15 @@ export default function AdminLayout() {
         </header>
         <UpdateBanner />
         <main className="mx-auto max-w-6xl space-y-5 px-4 pt-6 md:px-8 md:pt-10">
-          <Outlet context={{ campaign, reloadCampaign: loadCampaign }} />
+          <Outlet context={{ campaign, reloadCampaign: loadCampaign, setDirty, confirmLeave }} />
         </main>
       </div>
 
       {/* Barre d'onglets iOS (téléphone) */}
       <nav className="ios-bar hairline-t fixed inset-x-0 bottom-0 z-20 flex justify-around pt-1.5 pb-[max(env(safe-area-inset-bottom),8px)] md:hidden" aria-label="Sections">
         {TABS.map((t) => (
-          <NavLink key={t.to} to={t.to}
-            className={({ isActive }) => `flex min-w-0 flex-1 flex-col items-center gap-0.5 text-[10px] font-medium ${isActive ? 'text-blue-900' : 'text-slate-400'}`}>
+          <NavLink key={t.to} to={t.to} onClick={guard}
+            className={({ isActive }) => `flex min-h-11 min-w-0 flex-1 flex-col items-center gap-0.5 text-[10px] font-medium ${isActive ? 'text-blue-900' : 'text-slate-400'}`}>
             <Icon name={t.icon} className="size-6" />
             <span className="truncate">{t.short}</span>
           </NavLink>
@@ -112,7 +130,7 @@ function UpdateBanner() {
     window.desktop.info().then((i) => setState(i.update));
     return window.desktop.onUpdate(setState);
   }, []);
-  if (!state || !['downloading', 'ready'].includes(state.status)) return null;
+  if (!state || !['downloading', 'ready', 'manual'].includes(state.status)) return null;
   return (
     <div className="mx-auto max-w-6xl px-4 pt-4 md:px-8">
       <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
@@ -120,9 +138,12 @@ function UpdateBanner() {
         <p className="min-w-0 flex-1 text-[14px]">
           {state.status === 'ready'
             ? <>La version <strong>{state.version}</strong> est prête. Elle s&apos;installera au prochain redémarrage.</>
-            : <>Téléchargement de la version {state.version}{state.percent ? ` — ${state.percent} %` : '…'}</>}
+            : state.status === 'manual'
+              ? <>La version <strong>{state.version}</strong> est disponible. Téléchargez-la puis remplacez l&apos;application (vos données sont conservées).</>
+              : <>Téléchargement de la version {state.version}{state.percent ? ` — ${state.percent} %` : '…'}</>}
         </p>
         {state.status === 'ready' && <Button size="sm" onClick={() => window.desktop.installUpdate()}>Redémarrer maintenant</Button>}
+        {state.status === 'manual' && <Button size="sm" onClick={() => window.desktop.openDownloadPage()}>Télécharger</Button>}
       </div>
     </div>
   );
@@ -162,8 +183,10 @@ function AdminLogin({ auth, onLogged }) {
         </p>
       </div>
       {setup && !auth.canSetup ? (
-        <Alert tone="warning" title="Configuration à terminer sur le poste principal">
-          Ouvrez le logiciel sur l&apos;ordinateur où il est installé pour créer le mot de passe.
+        <Alert tone="warning" title={auth.desktop ? 'Configuration à terminer sur le poste principal' : 'Mot de passe à définir sur le serveur'}>
+          {auth.desktop
+            ? 'Ouvrez le logiciel sur l\u2019ordinateur où il est installé pour créer le mot de passe.'
+            : 'Définissez la variable ADMIN_PASSWORD dans le fichier .env du serveur, puis redémarrez-le.'}
         </Alert>
       ) : (
         <Card className="p-5">

@@ -22,10 +22,16 @@ const toDate = (iso) => (iso ? iso.slice(0, 10) : '');
 const fmt = (iso) => iso.split('-').reverse().join('/');
 
 export default function AdminCalendar() {
-  const { campaign, reloadCampaign } = useOutletContext();
+  const { campaign, reloadCampaign, setDirty: setLayoutDirty } = useOutletContext();
   const [form, setForm] = useState(null);
   const [range, setRange] = useState({ start: '', end: '' });
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirtyLocal] = useState(false);
+  const [rangeError, setRangeError] = useState(null);
+  const setDirty = (v) => {
+    setDirtyLocal(v);
+    setLayoutDirty(v);
+  };
+  useEffect(() => () => setLayoutDirty(false), [setLayoutDirty]);
   const [action, run, clear] = useAction();
 
   useEffect(() => {
@@ -52,7 +58,9 @@ export default function AdminCalendar() {
   const counts = Object.fromEntries(Object.keys(WEEK_KINDS).map((k) => [k, form.weeks.filter((w) => w.kind === k).length]));
   const slotsChanged = campaign && JSON.stringify(form.slots) !== JSON.stringify(campaign.config.slots);
 
+  const datesMissing = !form.opensAt || !form.closesAt;
   async function save() {
+    if (datesMissing) return;
     const body = {
       ...form,
       opensAt: new Date(`${form.opensAt}T00:00:00`).toISOString(),
@@ -69,7 +77,7 @@ export default function AdminCalendar() {
   return (
     <>
       <PageTitle title="Calendrier universitaire"
-        actions={<Button onClick={save} disabled={!dirty || action.busy}>{action.busy ? 'Enregistrement…' : dirty ? 'Enregistrer le calendrier' : 'Enregistré'}</Button>}>
+        actions={<Button onClick={save} disabled={!dirty || action.busy || datesMissing}>{action.busy ? 'Enregistrement…' : dirty ? 'Enregistrer le calendrier' : 'Enregistré'}</Button>}>
         Déclarez les semaines du semestre et leur nature. Les enseignants ne peuvent choisir que des semaines qui ne sont pas des vacances.
       </PageTitle>
       <Feedback state={action} onClose={clear} />
@@ -103,10 +111,20 @@ export default function AdminCalendar() {
             <input type="date" className={inputClass(false)} value={range.end} onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))} />
           </Field>
           <Button variant="secondary" disabled={!range.start || !range.end || range.end < range.start}
-            onClick={() => set({ weeks: buildWeeks(range.start, range.end, form.weeks) })}>
+            onClick={() => {
+              const weeks = buildWeeks(range.start, range.end, form.weeks);
+              if ((new Date(range.end) - new Date(range.start)) / 86_400_000 > 7 * 53) {
+                setRangeError('La période dépasse un an : choisissez des dates d\u2019un même semestre ou d\u2019une même année universitaire.');
+                return;
+              }
+              setRangeError(null);
+              set({ weeks });
+            }}>
             Générer les semaines
           </Button>
         </div>
+        {rangeError && <Alert tone="error">{rangeError}</Alert>}
+        {datesMissing && <Alert tone="warning">Renseignez la date d&apos;ouverture et la date limite pour pouvoir enregistrer.</Alert>}
         <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
           {Object.entries(WEEK_KINDS).map(([k, l]) => counts[k] > 0 && <span key={k}><strong>{counts[k]}</strong> {l.replace(' (non sélectionnable)', '').toLowerCase()}</span>)}
         </p>
@@ -167,10 +185,10 @@ export default function AdminCalendar() {
             const [start = '', end = ''] = s.split('-');
             const update = (a, b) => set({ slots: form.slots.map((x, k) => (k === i ? `${a}-${b}` : x)) });
             return (
-              <div key={i} className="flex items-center gap-2">
-                <input type="time" aria-label={`Début du créneau ${i + 1}`} className={`${inputClass(false)} w-32`} value={start} onChange={(e) => update(e.target.value, end)} />
+              <div key={i} className="flex flex-wrap items-center gap-2">
+                <input type="time" aria-label={`Début du créneau ${i + 1}`} className={`${inputClass(false)} !w-28`} value={start} onChange={(e) => update(e.target.value, end)} />
                 <span className="text-slate-400">→</span>
-                <input type="time" aria-label={`Fin du créneau ${i + 1}`} className={`${inputClass(false)} w-32`} value={end} onChange={(e) => update(start, e.target.value)} />
+                <input type="time" aria-label={`Fin du créneau ${i + 1}`} className={`${inputClass(false)} !w-28`} value={end} onChange={(e) => update(start, e.target.value)} />
                 <Button variant="ghost" size="sm" disabled={form.slots.length <= 1} onClick={() => set({ slots: form.slots.filter((_, k) => k !== i) })}>Retirer</Button>
               </div>
             );

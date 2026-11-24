@@ -36,6 +36,8 @@ db.transaction = (fn) => (...args) => {
  */
 export const SCHEMA_VERSION = 3;
 const currentVersion = db.prepare('PRAGMA user_version').get().user_version;
+/** Version de la base avant ce démarrage (0 = base neuve). Sert aux migrations ponctuelles. */
+export const previousVersion = currentVersion;
 const hasTables = db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type='table' AND name='campaigns'").get().n > 0;
 if (hasTables && currentVersion < 2) {
   console.warn(`Base de données au format v${currentVersion} (prototype) : recréée au format v${SCHEMA_VERSION}.`);

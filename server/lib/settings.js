@@ -32,8 +32,13 @@ export function setSetting(key, value) {
 /** E-mail configuré = un serveur SMTP est renseigné. Sinon les messages restent dans la boîte d'envoi. */
 export const mailConfigured = () => Boolean(getSetting('smtpHost'));
 
-/** Mode démonstration (version web sans e-mail) : données fictives, boîte de démo, mot de passe « demo ». */
-export const demoMode = () => !isDesktop() && !mailConfigured() && !getSetting('passwordHash');
+/**
+ * Mode démonstration : version web sans e-mail ni mot de passe réel (données fictives, boîte de démo,
+ * mot de passe « demo »). Désactivé dès qu'un vrai mot de passe existe (ADMIN_PASSWORD ou mot de passe
+ * créé dans l'application), en version bureau, ou explicitement avec DEMO_MODE=false.
+ */
+export const demoMode = () =>
+  process.env.DEMO_MODE !== 'false' && !isDesktop() && !mailConfigured() && !process.env.ADMIN_PASSWORD && !getSetting('passwordHash');
 
 /** Adresse à laquelle les enseignants ouvrent leur lien. */
 export function appUrl() {

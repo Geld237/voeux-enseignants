@@ -8,7 +8,48 @@ avant l'export vers Hyperplanning.
 La fiche de vœux est en **version 2**, refondue à partir de l'analyse des fiches reçues pour les semestres impairs 2026-2027.
 À venir : tableau de bord admin (3), export Hyperplanning (4), édition du planning et alertes (5).
 
-## Démarrer en 2 minutes (mode démo)
+## Installer le logiciel (équipe programme)
+
+1. Téléchargez la dernière version sur la page **Releases** du dépôt :
+   https://github.com/Geld237/voeux-enseignants/releases/latest
+   - Windows : `Voeux-enseignants-x.y.z-win-x64.exe` (installation sans droits administrateur)
+   - macOS : `Voeux-enseignants-x.y.z-mac-universal.dmg`
+2. Au premier lancement, créez le mot de passe de l'espace équipe programme.
+3. Dans **Réglages**, vérifiez l'adresse d'accès des enseignants et, si possible, configurez l'e-mail
+   (serveur SMTP de l'université). Sans e-mail, utilisez « Copier le lien » pour chaque enseignant.
+
+**Accès des enseignants.** Le logiciel fait tourner l'application sur l'ordinateur de l'équipe programme
+(port 4310). Les enseignants ouvrent leur lien personnel dans leur navigateur, depuis le même réseau
+(réseau de l'université, VPN) et pendant que le logiciel est ouvert. Si le pare-feu de Windows le demande
+au premier lancement, autorisez l'accès sur les réseaux privés / de domaine.
+
+**Données et sauvegardes.** La base est enregistrée dans le dossier utilisateur du système (menu
+*Fichier → Ouvrir le dossier des données et sauvegardes*) ; une copie est faite à chaque lancement
+(10 dernières conservées). Désinstaller ou mettre à jour le logiciel ne supprime pas les données.
+
+**Mises à jour.** Le logiciel vérifie au démarrage (puis toutes les 6 h) s'il existe une nouvelle version,
+la télécharge en arrière-plan et l'installe au redémarrage (bandeau « Redémarrer maintenant »).
+Menu *Aide → Rechercher des mises à jour…* pour vérifier à la demande.
+
+> Les installateurs ne sont pas signés numériquement : au premier lancement, Windows SmartScreen
+> (« Informations complémentaires → Exécuter quand même ») ou macOS (clic droit → Ouvrir) demandent une confirmation.
+> Sur macOS, la mise à jour automatique exige une application signée par un compte développeur Apple :
+> sans signature, installez les nouvelles versions à la main depuis *Releases* (Windows se met à jour seul).
+
+## Publier une nouvelle version (développeur)
+
+```bash
+# 1. changer "version" dans package.json (ex. 1.1.0), puis :
+git commit -am "Version 1.1.0"
+git tag v1.1.0
+git push --follow-tags
+```
+
+GitHub Actions (`.github/workflows/release.yml`) lance les tests, fabrique les installateurs Windows et
+macOS et les publie dans *Releases* : les logiciels installés se mettent à jour d'eux-mêmes.
+Pour essayer le logiciel de bureau sans l'installer : `npm run desktop`.
+
+## Essayer la version web en 2 minutes (mode démo, développeurs)
 
 Prérequis : Node.js 22.13 ou plus récent (22 LTS ou 24). La base SQLite est celle intégrée à Node : aucun outil de compilation (Visual Studio, Python) n'est nécessaire.
 
@@ -31,7 +72,7 @@ Autres commandes :
 |---|---|
 | `npm run links` | Affiche un lien unique par enseignant dans le terminal |
 | `npm run seed:reset` | Remet les données de démonstration à zéro |
-| `npm test` | Tests de l'API (liens, sessions, fiche enseignant, espace équipe programme) |
+| `npm test` | 27 tests de l'API : liens, sessions, fiche enseignant, espace équipe programme, sécurité, logiciel de bureau |
 | `npm run build && npm start` | Version de production servie par Express sur le port 3001 |
 
 ## Espace équipe programme (`/admin`)

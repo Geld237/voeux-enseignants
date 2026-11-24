@@ -14,7 +14,8 @@ const EMPTY = { name: '', kind: 'td', capacity: null, features: [], busy: {}, no
 const fmtSlot = (s) => s.split('-').map((t) => t.replace(':', 'h').replace(/^0/, ''));
 
 export default function AdminRooms() {
-  const { campaign } = useOutletContext();
+  const { campaign, setDirty, confirmLeave } = useOutletContext();
+  useEffect(() => () => setDirty(false), [setDirty]);
   const [data, setData, { error }] = useLoad('/api/admin/rooms');
   const [action, run, clear] = useAction();
   const [selected, setSelected] = useState(null); // id ou 'new'
@@ -26,11 +27,12 @@ export default function AdminRooms() {
   const totalSlots = config.days.length * config.slots.length;
   const busyCount = (r) => config.days.reduce((s, d) => s + config.slots.filter((sl) => r.busy[slotKey(d.key, sl)]).length, 0);
   const room = selected === 'new' ? EMPTY : rooms.find((r) => r.id === selected);
+  const select = (id) => confirmLeave() && setSelected(id);
 
   return (
     <>
       <PageTitle title="Salles et planning des salles"
-        actions={<Button size="sm" variant="secondary" onClick={() => setSelected('new')}>+ Ajouter une salle</Button>}>
+        actions={<Button size="sm" variant="secondary" onClick={() => select('new')}>+ Ajouter une salle</Button>}>
         Déclarez vos salles et cochez les créneaux déjà occupés chaque semaine. Les enseignants se voient proposer les salles qui ont
         l&apos;équipement demandé, une capacité suffisante pour leurs groupes et des créneaux libres quand ils sont disponibles.
       </PageTitle>
@@ -42,7 +44,7 @@ export default function AdminRooms() {
           {rooms.map((r) => {
             const busy = busyCount(r);
             return (
-              <button key={r.id} type="button" onClick={() => setSelected(r.id)}
+              <button key={r.id} type="button" onClick={() => select(r.id)}
                 className={`flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 ${selected === r.id ? 'bg-blue-50' : ''}`}>
                 <div className="min-w-0 flex-1">
                   <p className="font-medium">{r.name}</p>
@@ -63,11 +65,12 @@ export default function AdminRooms() {
         </Card>
 
         {room ? (
-          <RoomEditor key={selected} room={room} config={config} features={data.features}
-            onCancel={() => setSelected(null)}
+          <RoomEditor key={selected} room={room} config={config} features={data.features} onDirty={setDirty}
+            onCancel={() => select(null)}
             onSave={(r) =>
               run(() => (selected === 'new' ? api('POST', '/api/admin/rooms', r) : api('PUT', `/api/admin/rooms/${selected}`, r)), `Salle ${r.name} enregistrée.`).then((res) => {
                 if (!res) return;
+                setDirty(false);
                 setRooms(res);
                 setSelected(res.rooms.find((x) => x.name === r.name)?.id ?? null);
               })
@@ -84,9 +87,12 @@ export default function AdminRooms() {
   );
 }
 
-function RoomEditor({ room, config, features, onSave, onCancel, onDelete }) {
-  const [r, setR] = useState({ ...EMPTY, ...room, note: room.note || '' });
+function RoomEditor({ room, config, features, onSave, onCancel, onDelete, onDirty }) {
+  const initial = { ...EMPTY, ...room, note: room.note || '' };
+  const [r, setR] = useState(initial);
   useEffect(() => setR({ ...EMPTY, ...room, note: room.note || '' }), [room]);
+  const changed = JSON.stringify(r) !== JSON.stringify(initial);
+  useEffect(() => onDirty(changed), [changed, onDirty]);
   const toggle = (keys) =>
     setR((x) => {
       const busy = { ...x.busy };
@@ -161,6 +167,7 @@ function RoomEditor({ room, config, features, onSave, onCancel, onDelete }) {
         <input className={inputClass(false)} value={r.note} maxLength={300} onChange={(e) => setR({ ...r, note: e.target.value })} placeholder="Ex. clé au secrétariat, réservée au département le jeudi…" />
       </Field>
       <div className="flex flex-wrap gap-2">
+        {changed && <span className="self-center text-[13px] font-medium text-amber-700">Modifications non enregistrées</span>}
         <Button disabled={!r.name.trim()} onClick={() => onSave({ name: r.name.trim(), kind: r.kind, capacity: r.capacity, features: r.features, busy: r.busy, note: r.note })}>Enregistrer</Button>
         <Button variant="secondary" onClick={onCancel}>Fermer</Button>
         {onDelete && <Button variant="danger" className="ml-auto" onClick={onDelete}>Supprimer la salle</Button>}

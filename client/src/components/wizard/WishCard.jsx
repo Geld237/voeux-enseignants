@@ -7,7 +7,7 @@ import {
   suggestRooms, EVALUATION_KINDS, ROOM_NEEDS, RHYTHMS, fmtH, formatWeeks, groupCount, interventionHours,
   newIntervention, sessionsPerGroup,
 } from '@shared/schemas.js';
-import { Card, Chip, Field, Segmented, Select, inputClass } from '../ui.jsx';
+import { Card, Chip, DecimalInput, Field, Segmented, Select, inputClass } from '../ui.jsx';
 import WeekPicker from './WeekPicker.jsx';
 
 const TYPE_STYLE = { CM: 'bg-emerald-100 text-emerald-900', TD: 'bg-blue-100 text-blue-900', TP: 'bg-amber-100 text-amber-900' };
@@ -68,7 +68,8 @@ export default function WishCard({ wish, index, count, course, wishes, coursesBy
             <>
               <IconButton label="Monter" disabled={index === 0} onClick={() => onMove(-1)}>↑</IconButton>
               <IconButton label="Descendre" disabled={index === count - 1} onClick={() => onMove(1)}>↓</IconButton>
-              <IconButton label="Retirer" onClick={onRemove} className="text-red-700">✕</IconButton>
+              <IconButton label="Retirer ce vœu" className="ml-1 text-red-700"
+                onClick={() => window.confirm(`Retirer « ${course.title} » de vos vœux ? Tout ce que vous avez saisi pour ce module sera perdu.`) && onRemove()}>✕</IconButton>
             </>
           )}
           <IconButton label={open ? 'Replier' : 'Déplier'} onClick={() => setOpen((o) => !o)}>{open ? '▴' : '▾'}</IconButton>
@@ -220,7 +221,7 @@ function InterventionEditor({ iv, course, config, readOnly, showErrors, onChange
           {anyMode && (
             <div className="mt-2 flex items-center gap-2 text-sm">
               <span>Nombre de groupes :</span>
-              <Select className="w-24" value={iv.anyGroups} disabled={readOnly} onChange={(v) => onChange({ anyGroups: v })}
+              <Select className="!w-24" value={iv.anyGroups} disabled={readOnly} onChange={(v) => onChange({ anyGroups: v })}
                 options={Array.from({ length: Math.max(options.length, 1) }, (_, i) => ({ value: i + 1, label: String(i + 1) }))} />
             </div>
           )}
@@ -230,9 +231,7 @@ function InterventionEditor({ iv, course, config, readOnly, showErrors, onChange
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label={iv.type === 'CM' ? 'Heures de CM' : 'Heures par groupe'} required hint={pn ? `Programme : ${fmtH(pn)}` : undefined}
           error={noHours ? 'Obligatoire' : pn && iv.hoursPerGroup > pn ? `Au-delà du programme (${fmtH(pn)})` : null}>
-          <input type="number" inputMode="decimal" min="0" step="0.5" className={inputClass(noHours)} disabled={readOnly}
-            value={iv.hoursPerGroup || ''} placeholder="0"
-            onChange={(e) => onChange({ hoursPerGroup: e.target.value === '' ? 0 : Math.max(0, Number(e.target.value)) })} />
+          <DecimalInput invalid={noHours} disabled={readOnly} value={iv.hoursPerGroup} onChange={(n) => onChange({ hoursPerGroup: n })} />
         </Field>
         <Field label="Durée d'une séance" required>
           <Select value={iv.sessionLength} disabled={readOnly} onChange={(v) => onChange({ sessionLength: v })}
@@ -254,7 +253,7 @@ function InterventionEditor({ iv, course, config, readOnly, showErrors, onChange
         </p>
       )}
 
-      <Field label="Semaines" required error={noWeeks ? 'Choisissez les semaines ou cochez « indifférentes ».' : null}>
+      <Field label="Semaines" required error={noWeeks ? 'Choisissez les semaines ou activez « Semaines indifférentes ».' : null}>
         <WeekPicker config={config} value={iv.weeks} any={iv.anyWeeks} readOnly={readOnly} invalid={noWeeks}
           onChange={(weeks) => onChange({ weeks })} onAnyChange={(anyWeeks) => onChange({ anyWeeks })} />
       </Field>
@@ -310,7 +309,7 @@ function RoomSuggestions({ wish, course, rooms, availability, config, readOnly, 
 function IconButton({ label, className = '', ...props }) {
   return (
     <button type="button" aria-label={label} title={label}
-      className={`grid size-8 place-items-center rounded-md text-slate-600 hover:bg-slate-100 disabled:opacity-30 ${className}`} {...props} />
+      className={`grid size-11 place-items-center rounded-full text-[17px] text-slate-600 hover:bg-slate-100 disabled:opacity-30 sm:size-9 ${className}`} {...props} />
   );
 }
 

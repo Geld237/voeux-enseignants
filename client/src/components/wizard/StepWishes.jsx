@@ -70,7 +70,7 @@ export default function StepWishes({ draft, update, config, courses, rooms, read
       {!readOnly && (
         <section className="space-y-3">
           <h2 className="font-semibold">Catalogue des ressources et SAÉ</h2>
-          <input type="search" placeholder="Rechercher un code (R3.05, VGFR305…) ou un intitulé…" className={inputClass(false)}
+          <input type="search" placeholder="Code ou intitulé (ex. R3.05)" className={inputClass(false)}
             value={query} onChange={(e) => setQuery(e.target.value)} />
           <div className="flex flex-wrap gap-1.5">
             {[{ key: 'all', label: 'Tous les semestres' }, ...config.semesters].map((s) => (
@@ -110,10 +110,10 @@ function Gauge({ total, status }) {
   return (
     <Card className="p-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm text-slate-600">Total GEA FI demandé ce semestre</p>
+        <p className="text-sm text-slate-600">Total demandé pour ce semestre</p>
         <p className={`text-lg font-semibold ${over ? 'text-red-700' : ''}`}>
           {fmtH(total)} <span className="text-sm font-normal text-slate-500">éq. TD</span>
-          {target && <span className="text-sm font-normal text-slate-500"> / {target} h {status?.maxHours ? 'plafond' : 'service annuel'}</span>}
+          {target && <span className="text-sm font-normal text-slate-600"> {status?.maxHours ? `/ plafond ${target} h` : `· service annuel ${target} h`}</span>}
         </p>
       </div>
       {target && (

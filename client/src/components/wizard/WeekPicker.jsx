@@ -32,8 +32,22 @@ export default function WeekPicker({ config, value, onChange, any, onAnyChange, 
     return `${Number(d)}/${Number(m)}`;
   };
 
+  // Semaines choisies qui n'existent plus (calendrier modifié par l'équipe programme) ou devenues des vacances.
+  const selectable = new Set(weeks.filter((w) => w.kind !== 'holiday').map((w) => w.week));
+  const orphans = (value || []).filter((n) => !selectable.has(n));
+
   return (
     <div className={`space-y-2 ${invalid ? 'rounded-lg p-2 ring-2 ring-red-300' : ''}`}>
+      {orphans.length > 0 && (
+        <p className="flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          Le calendrier a changé : {orphans.map((n) => `S${n}`).join(', ')} ne {orphans.length > 1 ? 'sont' : 'est'} plus proposée{orphans.length > 1 ? 's' : ''}.
+          {!readOnly && (
+            <button type="button" className="font-semibold text-blue-900 underline" onClick={() => onChange(value.filter((n) => selectable.has(n)))}>
+              Retirer
+            </button>
+          )}
+        </p>
+      )}
       <div className="flex flex-wrap gap-1">
         {weeks.map((w) => {
           if (w.kind === 'holiday') {
@@ -62,10 +76,10 @@ export default function WeekPicker({ config, value, onChange, any, onAnyChange, 
         {!disabled && (
           <>
             {periods.length > 1 && periods.map((p, i) => (
-              <button key={i} type="button" className="font-medium text-blue-900 hover:underline" onClick={() => set(p)}>Période {i + 1}</button>
+              <button key={i} type="button" className="py-2 text-sm font-medium text-blue-900 hover:underline" onClick={() => set(p)}>Période {i + 1}</button>
             ))}
-            <button type="button" className="font-medium text-blue-900 hover:underline" onClick={() => set(periods.flat())}>Tout le semestre</button>
-            {value?.length > 0 && <button type="button" className="text-slate-500 hover:underline" onClick={() => set([])}>Effacer</button>}
+            <button type="button" className="py-2 text-sm font-medium text-blue-900 hover:underline" onClick={() => set(periods.flat())}>Tout le semestre</button>
+            {value?.length > 0 && <button type="button" className="py-2 text-sm text-slate-600 hover:underline" onClick={() => set([])}>Effacer</button>}
           </>
         )}
         {onAnyChange && (

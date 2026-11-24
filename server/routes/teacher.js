@@ -43,13 +43,16 @@ router.put('/draft', (req, res) => {
   const { teacher, campaign } = load(req);
   if (!campaign.isOpen) return res.status(403).json({ error: 'campaign_closed' });
   if (!R.isProfileComplete(teacher)) return res.status(409).json({ error: 'profile_incomplete' });
-  const parsed = draftSchema.safeParse(req.body);
+  const { baseUpdatedAt, ...body } = req.body || {};
+  const parsed = draftSchema.safeParse(body);
   if (!parsed.success) return res.status(422).json({ error: 'validation', issues: zodIssues(parsed.error) });
-  const courseIds = new Set(R.getCourses(campaign.id).map((c) => c.id));
-  if ((parsed.data.wishes ?? []).some((w) => !courseIds.has(w.courseId))) {
-    return res.status(422).json({ error: 'validation', issues: [{ field: 'wishes', message: 'Enseignement inconnu.' }] });
+  // Fiche modifiée entre-temps (autre onglet, autre appareil) : on refuse d'écraser.
+  const current = R.getResponse(teacher.id, campaign.id);
+  if (baseUpdatedAt !== undefined && current.updatedAt && baseUpdatedAt !== current.updatedAt) {
+    return res.status(409).json({ error: 'conflict', message: 'Votre fiche a été modifiée dans un autre onglet ou sur un autre appareil.' });
   }
-  const updatedAt = R.saveDraft(teacher.id, campaign.id, parsed.data, campaign.config);
+  // Enseignements supprimés entre-temps du catalogue : ignorés plutôt que bloquants.
+  const updatedAt = R.saveDraft(teacher.id, campaign.id, R.sanitizeDraft(parsed.data, campaign.id), campaign.config);
   res.json({ ok: true, state: 'draft', updatedAt });
 });
 

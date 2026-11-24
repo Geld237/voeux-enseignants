@@ -3,6 +3,19 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, errorMessage } from '../../api.js';
 import { Alert, Spinner } from '../../components/ui.jsx';
 
+/** Vrai sur un écran de téléphone (moins de 768 px) ; suit le redimensionnement. */
+export function useIsPhone() {
+  const query = '(max-width: 767px)';
+  const [phone, setPhone] = useState(() => typeof window !== 'undefined' && window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setPhone(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, []);
+  return phone;
+}
+
 /** Charge une ressource d'API ; renvoie [data, setData, { loading, error, reload }]. */
 export function useLoad(url) {
   const [data, setData] = useState(null);
@@ -87,7 +100,7 @@ export function Loading({ error }) {
 }
 
 export function Stat({ label, value, tone = 'slate', hint }) {
-  const tones = { slate: 'text-slate-900', green: 'text-emerald-600', amber: 'text-amber-300', red: 'text-red-600', blue: 'text-blue-900' };
+  const tones = { slate: 'text-slate-900', green: 'text-emerald-700', amber: 'text-amber-700', red: 'text-red-700', blue: 'text-blue-900' };
   return (
     <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgb(0_0_0/0.04)]">
       <p className="text-[13px] font-medium text-slate-500">{label}</p>
@@ -109,18 +122,32 @@ export function Badge({ tone = 'slate', children, title }) {
   return <span title={title} className={`inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold whitespace-nowrap ${tones[tone]}`}>{children}</span>;
 }
 
-/** Champ numérique compact qui ne déclenche onCommit qu'à la sortie du champ (ou Entrée). */
-export function NumberCell({ value, onCommit, disabled, className = '', placeholder = '—', step = '0.5', ariaLabel }) {
-  const [v, setV] = useState(value ?? '');
-  useEffect(() => setV(value ?? ''), [value]);
-  const commit = () => {
-    const next = v === '' ? null : Number(String(v).replace(',', '.'));
-    if (next !== (value ?? null) && (next === null || Number.isFinite(next))) onCommit(next);
+/** Lit un nombre saisi à la française (« 7,5 » ou « 7.5 ») ; '' → null ; illisible → NaN. */
+export const parseDecimal = (v) => {
+  const t = String(v ?? '').trim().replace(/\s/g, '').replace(',', '.');
+  if (t === '') return null;
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;
+};
+export const fmtDecimal = (n) => (n === null || n === undefined ? '' : String(n).replace('.', ','));
+
+/**
+ * Champ numérique compact : accepte la virgule décimale, n'enregistre qu'à la sortie du champ (ou Entrée),
+ * et revient à la valeur enregistrée si la saisie est refusée.
+ */
+export function NumberCell({ value, onCommit, disabled, className = '', placeholder = '—', ariaLabel }) {
+  const [v, setV] = useState(fmtDecimal(value));
+  useEffect(() => setV(fmtDecimal(value)), [value]);
+  const commit = async () => {
+    const next = parseDecimal(v);
+    if (Number.isNaN(next) || (next !== null && next < 0)) return setV(fmtDecimal(value));
+    if (next === (value ?? null)) return setV(fmtDecimal(value));
+    const ok = await onCommit(next);
+    if (ok === null || ok === false) setV(fmtDecimal(value));
   };
   return (
-    <input type="number" inputMode="decimal" min="0" step={step} aria-label={ariaLabel} value={v} placeholder={placeholder} disabled={disabled}
+    <input type="text" inputMode="decimal" aria-label={ariaLabel} value={v} placeholder={placeholder} disabled={disabled}
       onChange={(e) => setV(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-      className={`w-16 rounded-[8px] border-0 bg-[#7676801f] px-2 py-1 text-right text-[14px] tabular-nums outline-none focus:bg-white focus:ring-2 focus:ring-blue-700 disabled:opacity-50 ${className}`} />
+      className={`w-16 rounded-[8px] border-0 bg-[#7676801f] px-2 py-1.5 text-right text-[14px] tabular-nums outline-none focus:bg-white focus:ring-2 focus:ring-blue-700 disabled:opacity-50 ${className}`} />
   );
 }
 

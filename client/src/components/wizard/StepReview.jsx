@@ -15,10 +15,10 @@ export default function StepReview({ draft, config, courses, teacher, validation
   const status = config.statuses.find((s) => s.value === draft.teacherStatus);
   const o = draft.organisation;
   const orgLines = [
-    o.maxDays && `${o.maxDays} jour(s) de présence maximum`,
+    o.maxDays && `${o.maxDays} jour${o.maxDays > 1 ? 's' : ''} de présence maximum`,
     o.sameHalfDay && 'Groupes regroupés sur une même demi-journée',
-    o.earliestStart && `Arrivée au plus tôt à ${o.earliestStart.replace(':', 'h')}`,
-    o.latestEnd && `Fin au plus tard à ${o.latestEnd.replace(':', 'h')}`,
+    o.earliestStart && `Arrivée au plus tôt à ${o.earliestStart.replace(':', 'h').replace(/^0/, '')}`,
+    o.latestEnd && `Fin au plus tard à ${o.latestEnd.replace(':', 'h').replace(/^0/, '')}`,
     o.maxSameGroup && `${fmtH(o.maxSameGroup)} maximum d'affilée avec un même groupe`,
     o.lunch && `Pause déjeuner : ${LUNCH[o.lunch]}`,
     o.quarterBreak && `Quart d'heure entre deux cours : ${o.quarterBreak === 'yes' ? 'nécessaire' : 'pas nécessaire'}`,
@@ -46,7 +46,7 @@ export default function StepReview({ draft, config, courses, teacher, validation
         </Alert>
       )}
       {!readOnly && validation.errors.length === 0 && (
-        <Alert tone="success">Votre fiche est complète. Vérifiez le récapitulatif puis cliquez sur « Envoyer mes vœux ».</Alert>
+        <Alert tone="success">Votre fiche est complète. Vérifiez le récapitulatif puis cliquez sur le bouton d&apos;envoi en bas de l&apos;écran.</Alert>
       )}
 
       <Section title="Coordonnées et statut" onEdit={!readOnly && (() => onEdit('status'))}>
@@ -125,7 +125,7 @@ function Progression({ wishes, config }) {
   return (
     <Card className="p-5">
       <h2 className="font-semibold">Progression prévisionnelle (heures par semaine)</h2>
-      <p className="mb-3 text-xs text-slate-500">Estimation : les heures de chaque intervention sont réparties sur les semaines choisies.</p>
+      <p className="mb-3 text-xs text-slate-600">Estimation : les heures de chaque intervention sont réparties sur les semaines choisies.<span className="sm:hidden"> Faites défiler le graphique vers la gauche pour voir tout le semestre.</span></p>
       <div className="flex items-end gap-1 overflow-x-auto pb-1">
         {config.weeks.map((w) => {
           const h = load[w.week] || 0;

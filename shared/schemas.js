@@ -20,7 +20,7 @@ export const profileSchema = z.object({
     .regex(/^\+?[0-9 .()-]+$/, 'Caractères autorisés : chiffres, espaces, + . - ( )')
     .refine((v) => {
       const digits = v.replace(/\D/g, '').length;
-      return digits >= 9 && digits <= 15;
+      return digits >= 9 && digits <= 15 && !/^0+$/.test(v.replace(/\D/g, ''));
     }, 'Numéro de téléphone invalide')
     .max(25),
 });
@@ -38,7 +38,7 @@ export const RHYTHMS = {
 export const EVALUATION_KINDS = {
   none: 'Pas d’évaluation à organiser',
   in_class: 'Contrôle continu, pendant les séances',
-  common: 'Contrôle commun (toute la promotion)',
+  common: 'Contrôle commun (promotion)',
   oral: 'Soutenances / oraux',
 };
 export const ROOM_NEEDS = {
@@ -339,8 +339,11 @@ export function validateSubmission(data, { config, courses, profile }) {
       const lab = `${name} ${iv.type}`;
       if (!(iv.hoursPerGroup > 0)) err('wishes', f, `${lab} : indiquez le nombre d’heures.`);
       if (iv.type !== 'CM' && !iv.groups.length && !iv.anyGroups) err('wishes', f, `${lab} : choisissez vos groupes ou « indifférent » avec un nombre de groupes.`);
-      if (!iv.anyWeeks && !iv.weeks.length) err('wishes', f, `${lab} : choisissez les semaines ou cochez « indifférent ».`);
-      if (iv.weeks.some((n) => !teachingWeeks.has(n))) err('wishes', f, `${lab} : une semaine choisie est une semaine de vacances.`);
+      if (!iv.anyWeeks && !iv.weeks.length) err('wishes', f, `${lab} : choisissez les semaines ou activez « Semaines indifférentes ».`);
+      const known = new Set(config.weeks.map((w) => w.week));
+      const gone = iv.weeks.filter((n) => !known.has(n));
+      if (gone.length) err('wishes', f, `${lab} : ${gone.map((n) => `S${n}`).join(', ')} ne fait plus partie du calendrier : retirez-la de vos semaines.`);
+      else if (iv.weeks.some((n) => !teachingWeeks.has(n))) err('wishes', f, `${lab} : une semaine choisie est une semaine de vacances.`);
 
       const pn = { CM: c.pnCm, TD: c.pnTd, TP: c.pnTp }[iv.type];
       if (pn && iv.hoursPerGroup > pn && !w.extraHoursReason?.trim()) {
@@ -396,10 +399,10 @@ export function validateSubmission(data, { config, courses, profile }) {
   /* Disponibilités */
   const stats = availabilityStats(data.availability, config);
   if (stats.unset > 0) {
-    err('availability', 'grid', `${stats.unset} créneau(x) non renseigné(s) : complétez la grille (le bouton « Compléter » remplit les cases restantes).`);
+    err('availability', 'grid', `${stats.unset} créneau(x) non renseigné(s) : complétez la grille (« Compléter les cases vides avec » remplit les cases restantes).`);
   }
   if (stats.open < config.minAvailableSlots) {
-    err('availability', 'grid', `Laissez au moins ${config.minAvailableSlots} créneaux possibles (actuellement ${stats.open}).`);
+    err('availability', 'grid', `Laissez au moins ${config.minAvailableSlots} créneaux où vous pouvez enseigner — préférés, possibles ou à éviter (actuellement ${stats.open}).`);
   }
   if (stats.unavailable / stats.total > config.justifyAboveRatio && !data.availabilityNote?.trim()) {
     err('availability', 'availabilityNote', 'Vous êtes indisponible sur plus de la moitié des créneaux : merci de préciser la raison.');

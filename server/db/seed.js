@@ -6,7 +6,7 @@
  *
  * Le serveur appelle aussi seedIfEmpty() au démarrage en mode démo.
  */
-import { db } from './connection.js';
+import { db, previousVersion } from './connection.js';
 import { catalogue } from './catalogue-gea.js';
 import { fileURLToPath } from 'node:url';
 import { isoWeekMonday } from '../../shared/calendar.js';
@@ -167,11 +167,16 @@ export function seed({ withTeachers = true } = {}) {
   })();
 }
 
-/** Base v2 sans groupes ni salles : on ajoute ceux de démonstration à la campagne existante. */
+/**
+ * Migration v2 → v3, une seule fois : une base v2 n'a ni groupes ni salles ; on lui ajoute ceux de
+ * démonstration. Ensuite, si l'équipe supprime toutes les salles, elles ne reviennent pas.
+ */
 export function ensureSetup() {
+  if (previousVersion !== 2) return;
   for (const { id, config } of db.prepare('SELECT id, config FROM campaigns').all()) {
+    const c = { ...defaultCampaignConfig, ...JSON.parse(config) };
     if (!db.prepare('SELECT COUNT(*) n FROM groups WHERE campaign_id = ?').get(id).n) seedGroups(id);
-    if (!db.prepare('SELECT COUNT(*) n FROM rooms WHERE campaign_id = ?').get(id).n) seedRooms(id, JSON.parse(config));
+    if (!db.prepare('SELECT COUNT(*) n FROM rooms WHERE campaign_id = ?').get(id).n) seedRooms(id, c);
   }
 }
 

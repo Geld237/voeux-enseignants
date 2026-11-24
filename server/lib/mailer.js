@@ -34,8 +34,8 @@ export async function sendMail({ teacherId = null, kind, to, subject, text, html
     } else {
       await getTransport().sendMail({ from: getSetting('mailFrom') || getSetting('smtpUser'), to, subject, text, html });
     }
-    log.run(teacherId, kind, to, subject, 'sent', null);
-    return true;
+    log.run(teacherId, kind, to, subject, mailConfigured() ? 'sent' : 'queued', null);
+    return mailConfigured() ? 'sent' : 'queued';
   } catch (err) {
     log.run(teacherId, kind, to, subject, 'failed', String(err.message || err));
     console.error(`Échec d'envoi à ${to} :`, err.message);

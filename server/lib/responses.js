@@ -91,6 +91,18 @@ export const isProfileComplete = (t) => Boolean(t?.contactEmail && t?.phone);
 
 /* ---------- Réponse ---------- */
 
+/**
+ * Retire d'une fiche les enseignements qui n'existent plus dans le catalogue de la campagne
+ * (ressource supprimée par l'équipe programme), ainsi que les références « à placer après » vers eux.
+ */
+export function sanitizeDraft(draft, campaignId) {
+  const ids = new Set(db.prepare('SELECT id FROM courses WHERE campaign_id = ?').all(campaignId).map((c) => c.id));
+  const wishes = (draft.wishes || [])
+    .filter((w) => ids.has(w.courseId))
+    .map((w) => (w.afterCourseId && !ids.has(w.afterCourseId) ? { ...w, afterCourseId: null } : w));
+  return { ...draft, wishes };
+}
+
 export function getResponse(teacherId, campaignId) {
   const r = db.prepare('SELECT * FROM responses WHERE teacher_id = ? AND campaign_id = ?').get(teacherId, campaignId);
   if (!r) return { state: 'not_started', submittedAt: null, updatedAt: null, draft: null };
@@ -98,8 +110,22 @@ export function getResponse(teacherId, campaignId) {
     state: r.state,
     submittedAt: r.submitted_at,
     updatedAt: r.updated_at,
-    draft: normalizeDraft(JSON.parse(r.data || '{}')),
+    draft: sanitizeDraft(normalizeDraft(JSON.parse(r.data || '{}')), campaignId),
   };
+}
+
+/** Après suppression d'une ressource : nettoie toutes les fiches de la campagne (JSON et vue à plat). */
+export function purgeCourseFromResponses(campaignId, courseId) {
+  const rows = db.prepare('SELECT id, data FROM responses WHERE campaign_id = ?').all(campaignId);
+  for (const r of rows) {
+    const d = JSON.parse(r.data || '{}');
+    if (!(d.wishes || []).some((w) => w.courseId === courseId || w.afterCourseId === courseId)) continue;
+    const cleaned = {
+      ...d,
+      wishes: d.wishes.filter((w) => w.courseId !== courseId).map((w) => (w.afterCourseId === courseId ? { ...w, afterCourseId: null } : w)),
+    };
+    db.prepare('UPDATE responses SET data = ? WHERE id = ?').run(JSON.stringify(cleaned), r.id);
+  }
 }
 
 /**

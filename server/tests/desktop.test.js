@@ -80,3 +80,39 @@ test('lien personnel à copier, avec l’adresse d’accès réglée', async () 
   assert.match(r.body.url, /^http:\/\/192\.168\.1\.20:4310\/acces\/[A-Za-z0-9_-]{40,}$/);
   assert.ok(r.body.teachers[0].invitedAt);
 });
+
+test('création du mot de passe refusée derrière un proxy (X-Forwarded-For)', async () => {
+  db.prepare("DELETE FROM settings WHERE key = 'passwordHash'").run();
+  const res = await fetch(`${base}/api/auth/admin-setup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '203.0.113.9' },
+    body: JSON.stringify({ password: 'attaquant-123' }),
+  });
+  assert.equal(res.status, 403);
+});
+
+test('un nouveau lien ferme la session ouverte avec l’ancien', async () => {
+  const { issueToken } = await import('../lib/tokens.js');
+  const t = db.prepare('SELECT id FROM teachers').get();
+  const c = db.prepare('SELECT id FROM campaigns').get();
+  const { token } = issueToken({ teacherId: t.id, campaignId: c.id });
+  const ex = await fetch(`${base}/api/auth/exchange`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+  const sid = ex.headers.get('set-cookie').split(';')[0];
+  assert.equal((await fetch(`${base}/api/teacher/me`, { headers: { Cookie: sid } })).status, 200);
+  issueToken({ teacherId: t.id, campaignId: c.id });
+  assert.equal((await fetch(`${base}/api/teacher/me`, { headers: { Cookie: sid } })).status, 401);
+});
+
+test('deux onglets : la version la plus ancienne ne peut pas écraser la plus récente', async () => {
+  const { issueToken } = await import('../lib/tokens.js');
+  const t = db.prepare('SELECT id FROM teachers').get();
+  const c = db.prepare('SELECT id FROM campaigns').get();
+  const { token } = issueToken({ teacherId: t.id, campaignId: c.id });
+  const ex = await fetch(`${base}/api/auth/exchange`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) });
+  const sid = ex.headers.get('set-cookie').split(';')[0];
+  const put = (body) => fetch(`${base}/api/teacher/draft`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: sid }, body: JSON.stringify(body) });
+  await fetch(`${base}/api/teacher/profile`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Cookie: sid }, body: JSON.stringify({ contactEmail: 'l@d.fr', phone: '0612345678' }) });
+  const first = await (await put({ comment: 'onglet A', baseUpdatedAt: null })).json();
+  assert.equal((await put({ comment: 'onglet A bis', baseUpdatedAt: first.updatedAt })).status, 200);
+  assert.equal((await put({ comment: 'onglet B périmé', baseUpdatedAt: first.updatedAt })).status, 409);
+});

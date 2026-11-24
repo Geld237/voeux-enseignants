@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 -- Catalogue des ressources et SAÉ de la campagne.
 -- pn_* : volumes du programme par groupe (NULL = non renseigné, pas de contrôle de dépassement).
 CREATE TABLE IF NOT EXISTS courses (
-  id           INTEGER PRIMARY KEY,
+  id           INTEGER PRIMARY KEY AUTOINCREMENT, -- jamais réutilisé : un vœu ne peut pas glisser vers une autre ressource
   campaign_id  INTEGER NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
   code         TEXT NOT NULL,             -- code programme : R3.GC2F.11, SAÉ 1.01…
   apogee_code  TEXT,                      -- code Apogée / Hyperplanning : VGFR311…

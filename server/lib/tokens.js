@@ -14,13 +14,19 @@ export function revokeTokens({ teacherId, campaignId }) {
   db.prepare(
     'UPDATE access_tokens SET revoked_at = ? WHERE teacher_id = ? AND campaign_id = ? AND revoked_at IS NULL'
   ).run(nowIso(), teacherId, campaignId);
+  // Les sessions ouvertes avec un ancien lien sont fermées.
+  db.prepare("DELETE FROM sessions WHERE role = 'teacher' AND teacher_id = ? AND campaign_id = ?").run(teacherId, campaignId);
 }
 
-export function issueToken({ teacherId, campaignId, ttlDays = Number(process.env.TOKEN_TTL_DAYS || 30) }) {
+/**
+ * Crée un lien personnel. revokePrevious (par défaut) désactive les liens précédents et ferme les sessions
+ * ouvertes avec eux ; les invitations et relances le désactivent, pour ne pas casser un lien déjà transmis.
+ */
+export function issueToken({ teacherId, campaignId, ttlDays = Number(process.env.TOKEN_TTL_DAYS || 30), revokePrevious = true }) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expiresAt = addDays(new Date(), ttlDays).toISOString();
   db.transaction(() => {
-    revokeTokens({ teacherId, campaignId });
+    if (revokePrevious) revokeTokens({ teacherId, campaignId });
     db.prepare('INSERT INTO access_tokens (teacher_id, campaign_id, token_hash, expires_at) VALUES (?, ?, ?, ?)').run(
       teacherId, campaignId, hashToken(token), expiresAt
     );

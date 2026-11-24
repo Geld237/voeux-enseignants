@@ -15,7 +15,10 @@ export default function StepProfile({ teacher, onSaved, locked }) {
     setSaved(false);
     const parsed = profileSchema.safeParse(form);
     if (!parsed.success) {
-      setErrors(Object.fromEntries(parsed.error.issues.map((i) => [i.path[0], i.message])));
+      // Premier message par champ (« obligatoire » avant « invalide »).
+      const errs = {};
+      for (const i of parsed.error.issues) errs[i.path[0]] ??= i.message;
+      setErrors(errs);
       return;
     }
     setErrors({});

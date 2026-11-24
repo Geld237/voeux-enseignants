@@ -10,4 +10,5 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   installUpdate: () => ipcRenderer.invoke('update:install'),
   checkUpdates: () => ipcRenderer.invoke('update:check'),
+  openDownloadPage: () => ipcRenderer.invoke('update:download-page'),
 });

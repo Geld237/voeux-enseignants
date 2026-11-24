@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, useId } from 'react';
+import { Children, cloneElement, isValidElement, useEffect, useId, useState } from 'react';
 /** Petits composants d'interface partagés. */
 
 /**
@@ -9,9 +9,10 @@ export function Button({ variant = 'primary', size = 'md', className = '', ...pr
     primary: 'bg-blue-900 text-white hover:bg-blue-800 active:opacity-80 disabled:bg-slate-200 disabled:text-slate-400',
     secondary: 'bg-blue-900/10 text-blue-900 hover:bg-blue-900/15 active:bg-blue-900/20 disabled:bg-slate-100 disabled:text-slate-400',
     ghost: 'text-blue-900 hover:bg-blue-900/8 active:bg-blue-900/12 disabled:text-slate-400',
-    danger: 'bg-red-600/10 text-red-600 hover:bg-red-600/15 active:bg-red-600/20 disabled:text-slate-400',
+    danger: 'bg-red-600/10 text-red-700 hover:bg-red-600/15 active:bg-red-600/20 disabled:text-slate-400',
   };
-  const sizes = { sm: 'h-8 px-3 text-[13px]', md: 'h-10 px-4 text-[15px]', lg: 'h-12 px-6 text-[17px]' };
+  // Hauteurs ≥ 44 px sur téléphone (recommandation Apple), plus compactes à la souris.
+  const sizes = { sm: 'h-10 px-3.5 text-[14px] sm:h-8 sm:px-3 sm:text-[13px]', md: 'h-11 px-4 text-[16px] sm:h-10 sm:text-[15px]', lg: 'h-12 px-6 text-[17px]' };
   return (
     <button
       className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-full font-semibold whitespace-nowrap transition-[background-color,opacity,transform] duration-150 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:cursor-not-allowed disabled:active:scale-100 ${variants[variant]} ${sizes[size]} ${className}`}
@@ -29,7 +30,7 @@ export function Field({ label, hint, error, required, htmlFor, children }) {
   // Relie automatiquement le libellé au champ (accessibilité, lecteurs d'écran).
   const autoId = useId();
   const child = Children.count(children) === 1 && isValidElement(children) ? children : null;
-  const linkable = child && ((typeof child.type === 'string' && ['input', 'select', 'textarea'].includes(child.type)) || child.type === Select);
+  const linkable = child && ((typeof child.type === 'string' && ['input', 'select', 'textarea'].includes(child.type)) || child.type === Select || child.type === DecimalInput);
   const id = htmlFor || child?.props.id || (linkable ? autoId : undefined);
   const content = linkable && !child.props.id ? cloneElement(child, { id }) : children;
   return (
@@ -42,7 +43,7 @@ export function Field({ label, hint, error, required, htmlFor, children }) {
       )}
       {content}
       {hint && !error && <p className="text-xs leading-snug text-slate-500">{hint}</p>}
-      {error && <p className="text-[13px] text-red-600" role="alert">{error}</p>}
+      {error && <p className="text-[13px] font-medium text-red-700" role="alert">{error}</p>}
     </div>
   );
 }
@@ -98,6 +99,30 @@ export function CenteredPage({ children }) {
   return <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-4 py-10">{children}</main>;
 }
 
+/**
+ * Champ de nombre décimal (heures) : accepte « 7,5 » comme « 7.5 », clavier numérique sur téléphone.
+ * onChange reçoit un nombre (0 si vide) dès que la saisie est lisible.
+ */
+export function DecimalInput({ value, onChange, invalid, className = '', ...props }) {
+  const show = (n) => (n ? String(n).replace('.', ',') : '');
+  const [v, setV] = useState(show(value));
+  useEffect(() => {
+    // Ne pas écraser la saisie en cours (« 7, ») quand la valeur numérique est la même.
+    setV((cur) => (Number(cur.replace(',', '.')) === (value || 0) && cur !== '' ? cur : show(value)));
+  }, [value]);
+  return (
+    <input type="text" inputMode="decimal" className={`${inputClass(invalid)} ${className}`} value={v} placeholder="0"
+      onChange={(e) => {
+        const raw = e.target.value.replace(/[^\d.,]/g, '');
+        setV(raw);
+        const n = Number(raw.replace(',', '.'));
+        if (raw === '') onChange(0);
+        else if (Number.isFinite(n)) onChange(Math.max(0, n));
+      }}
+      {...props} />
+  );
+}
+
 /** Interrupteur iOS avec libellé à gauche (ligne de réglage). */
 export function Toggle({ label, hint, checked, onChange, disabled }) {
   return (
@@ -124,7 +149,7 @@ export function Chip({ active, disabled, className = '', children, ...props }) {
       type="button"
       aria-pressed={active}
       disabled={disabled}
-      className={`inline-flex h-8 items-center rounded-full px-3.5 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+      className={`inline-flex h-10 items-center rounded-full px-3.5 text-[14px] font-medium sm:h-8 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
         active ? 'bg-blue-900 text-white' : 'bg-[#7676801f] text-slate-800 hover:bg-[#76768029]'
       } ${className}`}
       {...props}
@@ -161,7 +186,7 @@ export function Segmented({ value, onChange, options, disabled, name }) {
         return (
           <button key={String(o.value)} type="button" role="radio" aria-checked={on} disabled={disabled}
             onClick={() => onChange(o.value)}
-            className={`min-w-16 rounded-[8px] px-3 py-1.5 text-[13px] font-medium transition-all disabled:cursor-not-allowed ${
+            className={`min-h-10 min-w-16 rounded-[8px] px-3 py-2 text-[14px] font-medium sm:min-h-0 sm:py-1.5 sm:text-[13px] transition-all disabled:cursor-not-allowed ${
               on ? 'bg-white text-slate-900 shadow-[0_3px_8px_rgb(0_0_0/0.12),0_3px_1px_rgb(0_0_0/0.04)]' : 'text-slate-800 hover:bg-white/50'
             }`}>
             {o.label}

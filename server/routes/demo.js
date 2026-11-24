@@ -24,7 +24,8 @@ router.post('/invite', async (_req, res) => {
   const campaign = getCurrentCampaign();
   if (!campaign) return res.status(404).json({ error: 'no_campaign' });
   const ids = db.prepare('SELECT id FROM teachers').all().map((t) => t.id);
-  res.json({ ok: true, sent: await inviteTeachers(campaign, ids) });
+  const r = await inviteTeachers(campaign, ids);
+  res.json({ ok: true, sent: r.sent + r.queued });
 });
 
 router.post('/reset', (_req, res) => {

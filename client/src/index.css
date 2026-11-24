@@ -12,9 +12,10 @@
   --color-blue-50: #ebf4ff;
   --color-blue-100: #d9eaff;
   --color-blue-200: #b3d5ff;
-  --color-blue-700: #007aff;
-  --color-blue-800: #0066d6;
-  --color-blue-900: #007aff;
+  /* Bleu iOS légèrement assombri pour un contraste AA (≥ 4,5:1) avec le blanc */
+  --color-blue-700: #0066d6;
+  --color-blue-800: #0055b3;
+  --color-blue-900: #0066d6;
 
   --color-emerald-50: #ecfaf0;
   --color-emerald-100: #d3f4dc;
@@ -54,8 +55,8 @@
   --color-slate-200: #dcdce3;
   --color-slate-300: #c7c7cc;
   --color-slate-400: #aeaeb2;
-  --color-slate-500: #8a8a8e;
-  --color-slate-600: #6c6c70;
+  --color-slate-500: #6e6e73;
+  --color-slate-600: #5c5c61;
   --color-slate-700: #48484a;
   --color-slate-800: #2c2c2e;
   --color-slate-900: #1c1c1e;

@@ -8,11 +8,12 @@
 import { Fragment, useMemo, useState } from 'react';
 import { api } from '../../api.js';
 import { Button, Card, Chip, Field, Select, inputClass } from '../../components/ui.jsx';
-import { Badge, Feedback, Loading, NumberCell, PageTitle, Stat, fmtHours, useAction, useLoad } from './common.jsx';
+import { Badge, Feedback, Loading, NumberCell, PageTitle, Stat, fmtHours, parseDecimal, useAction, useIsPhone, useLoad } from './common.jsx';
 
 const EMPTY = { code: '', apogee: '', title: '', semester: 'S1', parcours: null, kind: 'R', pnCm: null, pnTd: null, pnTp: null, toConfirm: false };
 
 export default function AdminRepartition() {
+  const phone = useIsPhone();
   const [data, setData, { error }] = useLoad('/api/admin/courses');
   const [action, run, clear] = useAction();
   const [semester, setSemester] = useState('all');
@@ -46,7 +47,10 @@ export default function AdminRepartition() {
   const setCourses = (r) => r?.courses && setData((d) => ({ ...d, courses: r.courses }));
   const replaceCourse = (course) => course && setData((d) => ({ ...d, courses: d.courses.map((c) => (c.id === course.id ? course : c)) }));
   const save = (c, patch) =>
-    run(() => api('PUT', `/api/admin/courses/${c.id}`, toPayload({ ...c, ...patch }))).then(setCourses);
+    run(() => api('PUT', `/api/admin/courses/${c.id}`, toPayload({ ...c, ...patch }))).then((r) => {
+      setCourses(r);
+      return r; // null en cas de refus : la cellule reprend sa valeur
+    });
 
   return (
     <>
@@ -55,6 +59,9 @@ export default function AdminRepartition() {
           <>
             <Button size="sm" variant="secondary" onClick={() => setPanel(panel === 'add' ? null : 'add')}>+ Ajouter une ressource</Button>
             <Button size="sm" variant="secondary" onClick={() => setPanel(panel === 'import' ? null : 'import')}>Coller un tableau</Button>
+            <a href="/api/admin/export-repartition.csv" className="inline-flex h-10 items-center rounded-full bg-blue-900/10 px-3.5 text-[14px] font-semibold text-blue-900 hover:bg-blue-900/15 sm:h-8 sm:text-[13px]">
+              Exporter la répartition
+            </a>
           </>
         }>
         Saisissez les volumes du programme <strong>par groupe</strong> : le besoin est calculé avec les groupes de l&apos;onglet « Groupes ».
@@ -91,7 +98,43 @@ export default function AdminRepartition() {
         </div>
       </Card>
 
-      <Card className="overflow-x-auto">
+      {/* Téléphone : cartes */}
+      {phone && <div className="space-y-2">
+        {shown.length === 0 && <Card className="p-5 text-center text-slate-500">Aucune ressource.</Card>}
+        {shown.map((c) => {
+          const need = sum(c.need);
+          const assigned = sum(c.assigned);
+          const isOpen = open === c.id;
+          return (
+            <Card key={c.id} className="overflow-hidden">
+              <button type="button" className="flex w-full items-start gap-3 p-4 text-left" onClick={() => setOpen(isOpen ? null : c.id)} aria-expanded={isOpen}>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{c.title}</span>
+                  <span className="block text-[13px] text-slate-500">{c.code} · {c.semester} · {c.parcours || 'Tronc commun'}</span>
+                  <span className="mt-1 block text-[13px] text-slate-600">
+                    Besoin {need === null ? '?' : fmtHours(need)} · Vœux {c.wishes.length ? fmtHours(sum(c.requested)) : '—'} · Affecté {assigned ? fmtHours(assigned) : '—'}
+                  </span>
+                </span>
+                <span className="pt-1 text-slate-400">{isOpen ? '▾' : '▸'}</span>
+              </button>
+              {isOpen && (
+                <div className="space-y-4 border-t border-black/5 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-center gap-2 text-[13px] text-slate-600">
+                    Volume / groupe :
+                    <span>CM <NumberCell ariaLabel={`CM ${c.code}`} value={c.pnCm} onCommit={(v) => save(c, { pnCm: v })} /></span>
+                    <span>TD <NumberCell ariaLabel={`TD ${c.code}`} value={c.pnTd} onCommit={(v) => save(c, { pnTd: v })} /></span>
+                    <span>TP <NumberCell ariaLabel={`TP ${c.code}`} value={c.pnTp} onCommit={(v) => save(c, { pnTp: v })} /></span>
+                  </div>
+                  <CourseDetail course={c} data={data} run={run} onCourse={replaceCourse} onCourses={setCourses} onDeleted={() => setOpen(null)} />
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>}
+
+      {/* Ordinateur : tableau */}
+      {!phone && <Card className="overflow-x-auto">
         <table className="w-full min-w-[980px] text-sm">
           <thead className="bg-slate-50 text-xs text-slate-500 uppercase">
             <tr>
@@ -137,7 +180,10 @@ export default function AdminRepartition() {
                     <td className="px-2 py-2 text-right tabular-nums">{need === null ? <span className="text-slate-400">?</span> : fmtHours(need)}</td>
                     <td className="px-2 py-2 text-right tabular-nums">{c.wishes.length ? fmtHours(sum(c.requested)) : '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      <Badge tone={!assigned ? 'slate' : need && assigned >= need ? 'green' : 'amber'}>{assigned ? fmtHours(assigned) : '—'}</Badge>
+                      <Badge tone={!assigned ? 'slate' : need && assigned > need ? 'red' : need && assigned >= need ? 'green' : 'amber'}
+                        title={need && assigned > need ? 'Plus d\u2019heures affectées que le besoin' : undefined}>
+                        {assigned ? fmtHours(assigned) : '—'}
+                      </Badge>
                     </td>
                   </tr>
                   {isOpen && (
@@ -152,7 +198,7 @@ export default function AdminRepartition() {
             })}
           </tbody>
         </table>
-      </Card>
+      </Card>}
     </>
   );
 }
@@ -218,6 +264,21 @@ function CourseDetail({ course, data, run, onCourse, onCourses, onDeleted }) {
         </div>
       )}
 
+      {course.orphanAssignments?.length > 0 && (
+        <div className="space-y-2 rounded-xl bg-amber-50 p-3">
+          <p className="text-sm font-semibold text-amber-950">Affectations sur des groupes qui n&apos;existent plus</p>
+          {course.orphanAssignments.map((a) => (
+            <div key={`${a.type}-${a.groupName}`} className="flex flex-wrap items-center gap-2 text-sm">
+              <span>{a.type} {a.groupName} — {a.teacher} ({fmtHours(a.hours)})</span>
+              <Button size="sm" variant="danger"
+                onClick={() => run(() => api('PUT', '/api/admin/assignments', { courseId: course.id, type: a.type, groupName: a.groupName, teacherId: null }), 'Affectation retirée.').then((r) => r && onCourse(r.course))}>
+                Retirer
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div>
         <p className="mb-2 text-sm font-semibold">Affectations</p>
         {rows.every(([, groups]) => !groups.length) && (
@@ -249,10 +310,14 @@ function AssignmentCell({ course, type, group, pn, data, candidates, run, onCour
   const assign = (teacherId, hours) =>
     run(() => api('PUT', '/api/admin/assignments', {
       courseId: course.id, type, groupName: group, teacherId, hours: hours ?? current?.hours ?? pn ?? 0,
-    })).then((r) => r && onCourse(r.course));
+    })).then((r) => {
+      if (r) onCourse(r.course);
+      return r;
+    });
 
   return (
-    <div className={`flex items-center gap-2 rounded-lg bg-white p-2 ring-1 ${current ? 'ring-emerald-300' : 'ring-slate-200'}`}>
+    <div className={`flex items-center gap-2 rounded-xl bg-white p-2 ring-1 ${current && pn != null && current.hours > pn ? 'ring-red-400' : current ? 'ring-emerald-300' : 'ring-slate-200'}`}
+      title={current && pn != null && current.hours > pn ? `Plus d'heures que le volume programme (${fmtHours(pn)})` : undefined}>
       <span className="w-20 shrink-0 text-sm font-medium">{type === 'CM' ? 'Promotion' : group}</span>
       <select aria-label={`Enseignant ${type} ${group || 'promotion'}`} className="min-w-0 flex-1 rounded-md border-0 bg-white py-1.5 pr-7 pl-2 text-sm ring-1 ring-inset ring-slate-300 focus:ring-2 focus:ring-blue-700"
         value={current?.teacherId ?? ''} onChange={(e) => assign(e.target.value ? Number(e.target.value) : null)}>
@@ -267,7 +332,7 @@ function AssignmentCell({ course, type, group, pn, data, candidates, run, onCour
         </optgroup>
       </select>
       <NumberCell ariaLabel={`Heures ${type} ${group || 'promotion'}`} value={current?.hours ?? null} disabled={!current}
-        onCommit={(h) => current && assign(current.teacherId, h ?? 0)} placeholder={pn != null ? String(pn) : 'h'} />
+        onCommit={(h) => current && assign(current.teacherId, h ?? 0)} placeholder={pn != null ? String(pn).replace('.', ',') : 'h'} />
     </div>
   );
 }
@@ -302,8 +367,11 @@ function CourseForm({ initial, data, onSubmit, submitLabel }) {
       <div className="grid grid-cols-3 gap-3 sm:max-w-md">
         {[['pnCm', 'CM (h)'], ['pnTd', 'TD (h / groupe)'], ['pnTp', 'TP (h / groupe)']].map(([k, l]) => (
           <Field key={k} label={l}>
-            <input type="number" min="0" step="0.5" className={inputClass(false)} value={c[k] ?? ''}
-              onChange={(e) => setC((x) => ({ ...x, [k]: e.target.value === '' ? null : Number(e.target.value) }))} />
+            <input type="text" inputMode="decimal" className={inputClass(false)} defaultValue={c[k] == null ? '' : String(c[k]).replace('.', ',')}
+              onChange={(e) => {
+                const n = parseDecimal(e.target.value);
+                setC((x) => ({ ...x, [k]: Number.isNaN(n) ? x[k] : n }));
+              }} />
           </Field>
         ))}
       </div>

@@ -16,7 +16,7 @@ export default function StepStatus({ draft, update, config, readOnly, showErrors
               className={`flex cursor-pointer items-start gap-3 rounded-xl bg-white p-4 ring-1 transition ${
                 checked ? 'ring-2 ring-blue-900' : 'ring-slate-200 hover:ring-slate-300'
               } ${readOnly ? 'cursor-default' : ''}`}>
-              <input type="radio" name="status" className="mt-1 size-4 accent-blue-900" checked={checked}
+              <input type="radio" name="status" className="mt-1 size-4 shrink-0 accent-blue-900" checked={checked}
                 onChange={() => update({ teacherStatus: s.value })} />
               <span>
                 <span className="block font-medium">{s.label}</span>

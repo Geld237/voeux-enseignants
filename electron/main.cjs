@@ -15,6 +15,7 @@ const net = require('node:net');
 const { pathToFileURL } = require('node:url');
 
 const PREFERRED_PORT = 4310;
+const RELEASES_URL = 'https://github.com/Geld237/voeux-enseignants/releases/latest';
 let mainWindow = null;
 let serverUrl = null;
 let updateState = { status: 'idle' };
@@ -51,15 +52,46 @@ function freePort(preferred) {
   });
 }
 
+/**
+ * Sauvegarde cohérente de la base au lancement, y compris ce qui était encore dans le journal (WAL)
+ * après un arrêt brutal : SQLite intègre le journal puis écrit une copie complète (VACUUM INTO).
+ */
 function backupDatabase(dbFile) {
   if (!fs.existsSync(dbFile)) return;
   const dir = path.join(path.dirname(dbFile), 'sauvegardes');
   fs.mkdirSync(dir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
-  fs.copyFileSync(dbFile, path.join(dir, `voeux-${stamp}.db`));
+  const stamp = new Date().toISOString().replace(/[:T.]/g, '-').slice(0, 23);
+  const dest = path.join(dir, `voeux-${stamp}.db`);
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(dbFile);
+    db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    db.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`);
+    db.close();
+  } catch (e) {
+    console.error('Sauvegarde impossible :', e.message);
+    return;
+  }
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.db')).sort();
   for (const f of files.slice(0, Math.max(0, files.length - 10))) fs.rmSync(path.join(dir, f), { force: true });
 }
+
+/** Même origine que le serveur local (comparaison stricte, pas de simple préfixe). */
+const isAppUrl = (url) => {
+  try {
+    return new URL(url).origin === new URL(serverUrl).origin;
+  } catch {
+    return false;
+  }
+};
+/** Liens externes : seulement le web et les e-mails, jamais file:, javascript:, etc. */
+const openExternalSafe = (url) => {
+  try {
+    if (['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) shell.openExternal(url);
+  } catch {
+    /* lien invalide ignoré */
+  }
+};
 
 async function boot() {
   const dataDir = app.getPath('userData');
@@ -111,14 +143,14 @@ function createWindow() {
 
   // Liens externes (aide, GitHub…) : navigateur du système. Liens internes : dans la fenêtre.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith(serverUrl)) return { action: 'allow' };
-    shell.openExternal(url);
+    if (isAppUrl(url)) return { action: 'allow' };
+    openExternalSafe(url);
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith(serverUrl)) {
+    if (!isAppUrl(url)) {
       e.preventDefault();
-      shell.openExternal(url);
+      openExternalSafe(url);
     }
   });
   // Exports CSV / JSON : boîte « Enregistrer sous ».
@@ -151,6 +183,7 @@ function buildMenu(dataDir) {
     { label: 'Aide', submenu: [
       { label: 'Rechercher des mises à jour…', click: () => checkUpdates(true) },
       { label: 'Ouvrir l’application dans le navigateur', click: () => shell.openExternal(`${serverUrl}/admin`) },
+      { label: 'Télécharger la dernière version', click: () => shell.openExternal(RELEASES_URL) },
       { label: 'Page du projet', click: () => shell.openExternal('https://github.com/Geld237/voeux-enseignants') },
       { type: 'separator' },
       { label: `Version ${app.getVersion()}`, enabled: false },
@@ -174,10 +207,14 @@ function setupUpdates() {
   } catch {
     return;
   }
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  // macOS n'installe que des mises à jour signées par un compte développeur Apple : sans signature,
+  // on signale la nouvelle version et on propose de la télécharger depuis la page des versions.
+  const manual = process.platform === 'darwin' && !process.env.CSC_SIGNED;
+  autoUpdater.autoDownload = !manual;
+  autoUpdater.autoInstallOnAppQuit = !manual;
   autoUpdater.on('checking-for-update', () => sendUpdateState({ status: 'checking' }));
-  autoUpdater.on('update-available', (i) => sendUpdateState({ status: 'downloading', version: i.version }));
+  autoUpdater.on('update-available', (i) =>
+    sendUpdateState(manual ? { status: 'manual', version: i.version, url: RELEASES_URL } : { status: 'downloading', version: i.version }));
   autoUpdater.on('update-not-available', () => sendUpdateState({ status: 'up-to-date' }));
   autoUpdater.on('download-progress', (p) => sendUpdateState({ status: 'downloading', version: updateState.version, percent: Math.round(p.percent) }));
   autoUpdater.on('update-downloaded', (i) => sendUpdateState({ status: 'ready', version: i.version, notes: typeof i.releaseNotes === 'string' ? i.releaseNotes : '' }));
@@ -204,5 +241,6 @@ async function checkUpdates(interactive) {
 ipcMain.handle('app:info', () => ({ version: app.getVersion(), platform: process.platform, update: updateState }));
 ipcMain.handle('update:install', () => autoUpdater?.quitAndInstall());
 ipcMain.handle('update:check', () => checkUpdates(true));
+ipcMain.handle('update:download-page', () => shell.openExternal(RELEASES_URL));
 
 app.on('window-all-closed', () => app.quit());
