@@ -120,6 +120,7 @@
         "repo": "voeux-enseignants",
         "releaseType": "draft"
       }
-    ]
+    ],
+    "executableName": "Voeux-enseignants"
   }
 }
