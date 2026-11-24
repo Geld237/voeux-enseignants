@@ -227,7 +227,7 @@ function CourseDetail({ course, data, run, onCourse, onCourses, onDeleted }) {
           {rows.map(([type, groups, pn]) => groups.length > 0 && (
             <div key={type} className="space-y-1.5">
               <p className="text-xs font-semibold text-slate-500 uppercase">{type}{pn != null ? ` · ${fmtHours(pn)} par ${type === 'CM' ? 'promotion' : 'groupe'}` : ''}</p>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-3">
                 {groups.map((g) => (
                   <AssignmentCell key={g || 'promo'} course={course} type={type} group={g} pn={pn} data={data} candidates={candidates} run={run} onCourse={onCourse} />
                 ))}
@@ -295,7 +295,7 @@ function CourseForm({ initial, data, onSubmit, submitLabel }) {
           <Select value={c.kind} onChange={set('kind')} options={[{ value: 'R', label: 'Ressource' }, { value: 'SAE', label: 'SAÉ' }]} />
         </Field>
         <label className="flex items-center gap-2 pt-6 text-sm">
-          <input type="checkbox" className="size-4 accent-blue-900" checked={!!c.toConfirm} onChange={(e) => setC((x) => ({ ...x, toConfirm: e.target.checked }))} />
+          <input type="checkbox" className="ios-switch" checked={!!c.toConfirm} onChange={(e) => setC((x) => ({ ...x, toConfirm: e.target.checked }))} />
           Intitulé à confirmer
         </label>
       </div>

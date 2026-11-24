@@ -139,7 +139,7 @@ const teachers = [
   ['Lefèvre', 'Julien', 'julien.lefevre@univ-demo.fr'],
 ];
 
-export function seed() {
+export function seed({ withTeachers = true } = {}) {
   const now = new Date();
   const opensAt = new Date(now.getTime() - 86_400_000).toISOString();
   const closesAt = new Date(now.getTime() + 21 * 86_400_000).toISOString();
@@ -160,8 +160,10 @@ export function seed() {
     seedGroups(campaignId);
     seedRooms(campaignId, defaultCampaignConfig);
 
-    const insTeacher = db.prepare('INSERT INTO teachers (last_name, first_name, email) VALUES (?, ?, ?)');
-    for (const t of teachers) insTeacher.run(...t);
+    if (withTeachers) {
+      const insTeacher = db.prepare('INSERT INTO teachers (last_name, first_name, email) VALUES (?, ?, ?)');
+      for (const t of teachers) insTeacher.run(...t);
+    }
   })();
 }
 
@@ -177,16 +179,16 @@ export function isEmpty() {
   return db.prepare('SELECT COUNT(*) AS n FROM campaigns').get().n === 0;
 }
 
-export function seedIfEmpty() {
+export function seedIfEmpty(options) {
   if (!isEmpty()) return false;
-  seed();
+  seed(options);
   return true;
 }
 
 export function reset() {
   db.transaction(() => {
     for (const t of [
-      'dev_outbox', 'email_log', 'planning_entries', 'availabilities', 'wishes', 'responses',
+      'dev_outbox', 'email_log', 'assignments', 'planning_entries', 'availabilities', 'wishes', 'responses',
       'sessions', 'access_tokens', 'rooms', 'groups', 'courses', 'teachers', 'campaigns',
     ]) {
       db.prepare(`DELETE FROM ${t}`).run();

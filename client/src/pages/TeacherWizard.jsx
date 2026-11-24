@@ -187,7 +187,7 @@ export default function TeacherWizard() {
   return (
     <div className="min-h-dvh pb-28">
       {/* En-tête */}
-      <header className="border-b border-slate-200 bg-white">
+      <header className="ios-bar hairline-b sticky top-0 z-20">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             <p className="truncate font-semibold">{campaign.label}</p>
@@ -225,8 +225,8 @@ export default function TeacherWizard() {
         )}
 
         <div>
-          <p className="text-sm font-medium text-blue-900">Étape {stepIndex + 1} sur {STEPS.length}</p>
-          <h1 className="text-2xl font-semibold tracking-tight">{current.title}</h1>
+          <p className="text-[13px] font-semibold tracking-wide text-slate-500 uppercase">Étape {stepIndex + 1} sur {STEPS.length}</p>
+          <h1 className="text-[30px] leading-tight font-bold tracking-tight sm:text-[34px]">{current.title}</h1>
         </div>
 
         {step === 'profile' && (
@@ -264,7 +264,7 @@ export default function TeacherWizard() {
 
       {/* Barre de navigation fixe en bas (pratique sur mobile) */}
       {ctx.profileComplete && step !== 'profile' && (
-        <nav className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white/95 backdrop-blur">
+        <nav className="ios-bar hairline-t fixed inset-x-0 bottom-0 z-20 pb-[env(safe-area-inset-bottom)]">
           <div className="mx-auto flex max-w-4xl items-center justify-between gap-3 px-4 py-3">
             <Button variant="secondary" onClick={() => goTo(STEPS[stepIndex - 1].key)}>Précédent</Button>
             {step === 'review' ? (

@@ -23,8 +23,8 @@ export default function StepOrganisation({ draft, update, readOnly, showErrors }
           <Segmented value={o.maxDays} disabled={readOnly} onChange={(v) => set({ maxDays: v })} name="Jours maximum"
             options={[{ value: null, label: 'Indifférent' }, ...[1, 2, 3, 4].map((n) => ({ value: n, label: `${n} jour${n > 1 ? 's' : ''}` }))]} />
         </Field>
-        <label className="flex items-start gap-3 text-sm">
-          <input type="checkbox" className="mt-0.5 size-4 accent-blue-900" checked={o.sameHalfDay} disabled={readOnly}
+        <label className="flex flex-row-reverse items-center justify-between gap-4 text-sm">
+          <input type="checkbox" className="ios-switch" checked={o.sameHalfDay} disabled={readOnly}
             onChange={(e) => set({ sameHalfDay: e.target.checked })} />
           <span>Regrouper mes groupes sur une même demi-journée, les uns à la suite des autres</span>
         </label>
@@ -57,8 +57,8 @@ export default function StepOrganisation({ draft, update, readOnly, showErrors }
       </Card>
 
       <Card className="space-y-4 p-5">
-        <label className="flex items-start gap-3 text-sm">
-          <input type="checkbox" className="mt-0.5 size-4 accent-blue-900" checked={o.keepLastYear} disabled={readOnly}
+        <label className="flex flex-row-reverse items-center justify-between gap-4 text-sm">
+          <input type="checkbox" className="ios-switch" checked={o.keepLastYear} disabled={readOnly}
             onChange={(e) => set({ keepLastYear: e.target.checked })} />
           <span>Reprendre si possible l&apos;organisation de mon emploi du temps de l&apos;an dernier</span>
         </label>

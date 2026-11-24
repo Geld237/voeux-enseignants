@@ -5,9 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { projectRoot } from './db/connection.js';
 import { seedIfEmpty, ensureSetup } from './db/seed.js';
-import { devMode } from './lib/mailer.js';
+import { demoMode, isDesktop, appUrl, passwordSource } from './lib/settings.js';
 import { purgeExpiredSessions } from './lib/sessions.js';
-import authRoutes, { adminPassword } from './routes/auth.js';
+import authRoutes from './routes/auth.js';
 import teacherRoutes from './routes/teacher.js';
 import adminRoutes from './routes/admin.js';
 import demoRoutes from './routes/demo.js';
@@ -46,17 +46,27 @@ export function createApp() {
   return app;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.join(projectRoot, 'server', 'index.js')) {
-  if (devMode && seedIfEmpty()) console.log('Base vide : données de démonstration créées.');
+/**
+ * Démarre le serveur. Utilisé par `npm start` et par le logiciel de bureau (electron/main.cjs).
+ * En version bureau, le serveur écoute sur le réseau local pour que les enseignants puissent ouvrir leur lien.
+ */
+export function startServer({ port = Number(process.env.PORT || 3001), host = isDesktop() ? '0.0.0.0' : undefined } = {}) {
+  if (seedIfEmpty({ withTeachers: demoMode() })) console.log('Base vide : campagne initiale créée.');
   ensureSetup();
   purgeExpiredSessions();
   setInterval(purgeExpiredSessions, 3_600_000).unref();
-
-  const port = Number(process.env.PORT || 3001);
-  createApp().listen(port, () => {
-    console.log(`API prête sur http://localhost:${port}`);
-    if (devMode) console.log('Mode démo : aucun e-mail réel (boîte de démo sur /demo/boite).');
-    if (!adminPassword()) console.warn('ADMIN_PASSWORD non défini : l’espace équipe programme est désactivé.');
-    else if (devMode && !process.env.ADMIN_PASSWORD) console.log('Espace équipe programme : /admin (mot de passe de démo : demo)');
+  return new Promise((resolve, reject) => {
+    const server = createApp().listen(port, host, () => {
+      console.log(`Application prête sur http://localhost:${port}`);
+      console.log(`Liens enseignants : ${appUrl()}/acces/…`);
+      if (demoMode()) console.log('Mode démo : aucun e-mail réel (boîte de démo sur /demo/boite), mot de passe « demo ».');
+      else if (!passwordSource()) console.log('Premier lancement : créez le mot de passe sur /admin depuis ce poste.');
+      resolve(server);
+    });
+    server.on('error', reject);
   });
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === path.join(projectRoot, 'server', 'index.js')) {
+  startServer();
 }

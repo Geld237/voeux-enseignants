@@ -1,7 +1,7 @@
 {
   "name": "voeux-enseignants",
-  "version": "0.3.0",
-  "description": "Collecte des vœux et disponibilités des enseignants avant export vers Hyperplanning",
+  "version": "1.0.0",
+  "description": "Vœux et disponibilités des enseignants — collecte, répartition et préparation des emplois du temps (export Hyperplanning)",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,13 @@
     "seed": "node --disable-warning=ExperimentalWarning server/db/seed.js",
     "seed:reset": "node --disable-warning=ExperimentalWarning server/db/seed.js --reset",
     "links": "node --disable-warning=ExperimentalWarning server/scripts/generate-links.js",
-    "test": "node --disable-warning=ExperimentalWarning --test \"server/tests/*.test.js\""
+    "test": "node --disable-warning=ExperimentalWarning --test \"server/tests/*.test.js\"",
+    "desktop": "vite build && electron .",
+    "dist": "vite build && electron-builder",
+    "dist:win": "vite build && electron-builder --win",
+    "dist:mac": "vite build && electron-builder --mac",
+    "dist:linux": "vite build && electron-builder --linux",
+    "release": "vite build && electron-builder --publish always"
   },
   "engines": {
     "node": ">=22.13"
@@ -21,18 +27,98 @@
   "dependencies": {
     "cookie-parser": "^1.4.7",
     "dotenv": "^18.0.5",
+    "electron-updater": "^6.8.11",
     "express": "^5.2.1",
     "nodemailer": "^10.0.14",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "react-router-dom": "^7.18.4",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
     "concurrently": "^10.0.5",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.2"
+  },
+  "author": {
+    "name": "Équipe programme BUT GEA"
+  },
+  "homepage": "https://github.com/Geld237/voeux-enseignants",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Geld237/voeux-enseignants.git"
+  },
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "fr.but-gea.voeux-enseignants",
+    "productName": "Vœux enseignants",
+    "artifactName": "Voeux-enseignants-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "server/**",
+      "!server/tests/**",
+      "shared/**",
+      "client/dist/**",
+      "package.json"
+    ],
+    "asarUnpack": [],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "Vœux enseignants",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "category": "public.app-category.education",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Education",
+      "icon": "build/icon.png"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Geld237",
+        "repo": "voeux-enseignants",
+        "releaseType": "release"
+      }
+    ]
   }
 }

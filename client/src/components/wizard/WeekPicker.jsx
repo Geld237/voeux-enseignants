@@ -70,7 +70,7 @@ export default function WeekPicker({ config, value, onChange, any, onAnyChange, 
         )}
         {onAnyChange && (
           <label className="flex items-center gap-1.5 text-slate-700">
-            <input type="checkbox" className="size-4 accent-blue-900" checked={!!any} disabled={readOnly} onChange={(e) => onAnyChange(e.target.checked)} />
+            <input type="checkbox" className="ios-switch" checked={!!any} disabled={readOnly} onChange={(e) => onAnyChange(e.target.checked)} />
             Semaines indifférentes
           </label>
         )}

@@ -10,6 +10,7 @@ import AdminRepartition from './pages/admin/AdminRepartition.jsx';
 import AdminCalendar from './pages/admin/AdminCalendar.jsx';
 import AdminGroups from './pages/admin/AdminGroups.jsx';
 import AdminRooms from './pages/admin/AdminRooms.jsx';
+import AdminSettings from './pages/admin/AdminSettings.jsx';
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="calendrier" element={<AdminCalendar />} />
         <Route path="groupes" element={<AdminGroups />} />
         <Route path="salles" element={<AdminRooms />} />
+        <Route path="reglages" element={<AdminSettings />} />
       </Route>
       <Route path="*" element={<NotFound />} />
     </Routes>

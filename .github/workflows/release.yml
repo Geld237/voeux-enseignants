@@ -1,0 +1,35 @@
+# Publie une nouvelle version du logiciel.
+# Pour sortir la version 1.2.0 : changer "version" dans package.json, puis
+#   git commit -am "Version 1.2.0" && git tag v1.2.0 && git push --follow-tags
+# GitHub fabrique alors l'installateur Windows (.exe) et macOS (.dmg), les publie dans « Releases »,
+# et les logiciels déjà installés se mettent à jour automatiquement au lancement suivant.
+name: Publier une version
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Fabriquer et publier l'installateur
+        run: npm run release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false

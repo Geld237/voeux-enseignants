@@ -8,3 +8,4 @@ Voeux reçus*/
 *.xlsx
 
 .DS_Store
+release/

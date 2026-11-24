@@ -5,10 +5,10 @@
  */
 import crypto from 'node:crypto';
 import { db, nowIso, addDays } from '../db/connection.js';
+import { appUrl } from './settings.js';
 
 export const hashToken = (token) => crypto.createHash('sha256').update(String(token)).digest('hex');
 
-const appUrl = () => (process.env.APP_URL || 'http://localhost:5173').replace(/\/$/, '');
 
 export function revokeTokens({ teacherId, campaignId }) {
   db.prepare(

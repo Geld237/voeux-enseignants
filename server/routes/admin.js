@@ -13,6 +13,8 @@
  *   GET/POST /groups  PUT/DELETE /groups/:id
  *   GET/POST /rooms   PUT/DELETE /rooms/:id
  *   GET  /export.csv  /export.json
+ *   POST /teachers/:id/link        nouveau lien personnel à copier (sans passer par l'e-mail)
+ *   GET/PUT /settings  POST /settings/test-email  PUT /password  GET /outbox
  */
 import { Router } from 'express';
 import { z } from 'zod';
@@ -22,6 +24,14 @@ import * as R from '../lib/responses.js';
 import { inviteTeachers } from '../lib/invitations.js';
 import { equivalentTD, formatWeeks, ROOM_NEEDS } from '../../shared/schemas.js';
 import { WEEK_KINDS } from '../../shared/calendar.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { projectRoot } from '../db/connection.js';
+import { issueToken } from '../lib/tokens.js';
+import { sendTestEmail } from '../lib/mailer.js';
+import {
+  appUrl, getSetting, setSetting, lanAddresses, isDesktop, mailConfigured, passwordSource, checkPassword, hashPassword,
+} from '../lib/settings.js';
 
 const router = Router();
 router.use(requireAdmin);
@@ -193,6 +203,15 @@ router.post('/invite', async (req, res) => {
   if (req.body?.mode === 'pending') ids = teacherRows(c).filter((t) => t.state !== 'submitted').map((t) => t.id);
   const sent = await inviteTeachers(c, ids);
   res.json({ sent, teachers: teacherRows(c) });
+});
+
+router.post('/teachers/:id/link', (req, res) => {
+  const c = campaignOf();
+  const t = db.prepare('SELECT id FROM teachers WHERE id = ?').get(Number(req.params.id));
+  if (!t) return res.status(404).json({ error: 'not_found' });
+  const { url, expiresAt } = issueToken({ teacherId: t.id, campaignId: c.id });
+  db.prepare("INSERT INTO email_log (teacher_id, kind, recipient, subject, status) VALUES (?, 'invitation', '(lien copié)', 'Lien copié par l''équipe programme', 'sent')").run(t.id);
+  res.json({ url, expiresAt, teachers: teacherRows(c) });
 });
 
 /* ---------- tableau de répartition ---------- */
@@ -543,6 +562,72 @@ router.get('/export.json', (_req, res) => {
     groups: R.getGroups(c.id),
     rooms: R.getRooms(c.id),
     responses,
+  });
+});
+
+/* ---------- réglages ---------- */
+
+const version = () => JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8')).version;
+const port = () => Number(process.env.PORT || (isDesktop() ? 4310 : 3001));
+
+function settingsView() {
+  return {
+    version: version(),
+    desktop: isDesktop(),
+    appUrl: appUrl(),
+    appUrlSaved: getSetting('appUrl') || '',
+    lanUrls: lanAddresses().map((ip) => `http://${ip}:${port()}`),
+    smtpHost: getSetting('smtpHost') || '',
+    smtpPort: getSetting('smtpPort') || '587',
+    smtpUser: getSetting('smtpUser') || '',
+    hasSmtpPass: Boolean(getSetting('smtpPass')),
+    mailFrom: getSetting('mailFrom') || '',
+    mailConfigured: mailConfigured(),
+    passwordSource: passwordSource(),
+    outboxCount: db.prepare('SELECT COUNT(*) n FROM dev_outbox').get().n,
+  };
+}
+
+router.get('/settings', (_req, res) => res.json(settingsView()));
+
+const settingsSchema = z.object({
+  appUrl: z.string().trim().max(200).refine((v) => !v || /^https?:\/\/[^\s/]+(:\d+)?\/?$/.test(v), 'Adresse attendue : http://192.168.1.20:4310').optional(),
+  smtpHost: str(200).optional(),
+  smtpPort: z.string().trim().regex(/^\d{0,5}$/, 'Port invalide').optional(),
+  smtpUser: str(200).optional(),
+  smtpPass: z.string().max(200).optional(), // absent = inchangé, '' = effacé
+  mailFrom: str(200).optional(),
+});
+
+router.put('/settings', (req, res) => {
+  const d = parse(settingsSchema, req.body, res);
+  if (!d) return;
+  for (const [k, v] of Object.entries(d)) if (v !== undefined) setSetting(k, k === 'appUrl' ? v.replace(/\/$/, '') : v);
+  res.json(settingsView());
+});
+
+router.post('/settings/test-email', async (req, res) => {
+  const to = String(req.body?.to || '').trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return res.status(422).json({ error: 'validation', message: 'Adresse e-mail invalide.' });
+  try {
+    await sendTestEmail(to);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: 'smtp', message: `Échec de l'envoi : ${e.message}` });
+  }
+});
+
+router.put('/password', (req, res) => {
+  const next = String(req.body?.next || '');
+  if (passwordSource() && !checkPassword(req.body?.current)) return res.status(401).json({ error: 'bad_password', message: 'Mot de passe actuel incorrect.' });
+  if (next.length < 8) return res.status(422).json({ error: 'validation', message: 'Le nouveau mot de passe doit contenir au moins 8 caractères.' });
+  setSetting('passwordHash', hashPassword(next));
+  res.json(settingsView());
+});
+
+router.get('/outbox', (_req, res) => {
+  res.json({
+    emails: db.prepare('SELECT id, kind, recipient, subject, body_text AS text, created_at AS createdAt FROM dev_outbox ORDER BY id DESC LIMIT 300').all(),
   });
 });
 

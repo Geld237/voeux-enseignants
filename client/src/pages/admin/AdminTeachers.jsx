@@ -4,7 +4,9 @@
 import { useMemo, useState } from 'react';
 import { api, formatDate } from '../../api.js';
 import { Button, Card, Chip, Field, inputClass } from '../../components/ui.jsx';
-import { Badge, Feedback, Loading, PageTitle, Stat, fmtHours, useAction, useLoad } from './common.jsx';
+import { Badge, Feedback, Loading, PageTitle, Stat, copyText, fmtHours, useAction, useLoad } from './common.jsx';
+import { Alert } from '../../components/ui.jsx';
+import { Link } from 'react-router-dom';
 
 const STATE = {
   submitted: ['Envoyée', 'green'],
@@ -14,6 +16,7 @@ const STATE = {
 
 export default function AdminTeachers() {
   const [data, setData, { error }] = useLoad('/api/admin/teachers');
+  const [settings] = useLoad('/api/admin/settings');
   const [action, run, clear] = useAction();
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
@@ -58,6 +61,12 @@ export default function AdminTeachers() {
         <Stat label="Pas commencées" value={counts.not_started} tone={counts.not_started ? 'red' : 'slate'} />
       </div>
 
+      {settings && !settings.mailConfigured && (
+        <Alert tone="info" title="L'envoi des e-mails n'est pas configuré">
+          Les invitations ne partent pas. Utilisez <strong>Copier le lien</strong> pour chaque enseignant et envoyez-le depuis votre messagerie,
+          ou configurez l&apos;e-mail dans <Link to="../reglages" className="font-semibold text-blue-900">Réglages</Link>.
+        </Alert>
+      )}
       <Feedback state={action} onClose={clear} />
       {panel === 'add' && <AddTeacher onDone={(r) => { update(r); setPanel(null); }} run={run} />}
       {panel === 'import' && <ImportTeachers onDone={(r) => { update(r); }} run={run} />}
@@ -69,7 +78,7 @@ export default function AdminTeachers() {
           ))}
           <input type="search" placeholder="Rechercher…" className={`${inputClass(false)} sm:ml-auto sm:max-w-xs`} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
-        <div className="flex flex-wrap gap-2">
+        {(settings?.mailConfigured || settings?.desktop === false) && <div className="flex flex-wrap gap-2">
           <Button size="sm" disabled={action.busy || !teachers.length} onClick={() => invite({ mode: 'pending' }, 'aux enseignants qui n’ont pas encore envoyé leur fiche')}>
             Inviter / relancer les non-répondants
           </Button>
@@ -77,7 +86,7 @@ export default function AdminTeachers() {
             onClick={() => window.confirm('Envoyer un nouveau lien à tous les enseignants ? Les anciens liens seront désactivés.') && invite({ mode: 'all' })}>
             Inviter tout le monde
           </Button>
-        </div>
+        </div>}
       </Card>
 
       <Card className="overflow-x-auto">
@@ -112,9 +121,16 @@ export default function AdminTeachers() {
                   <td className="px-3 py-2.5 text-right tabular-nums">{t.assignedEqTD ? fmtHours(t.assignedEqTD) : '—'}</td>
                   <td className="px-3 py-2.5 text-xs text-slate-600">{t.invitedAt ? formatDate(t.invitedAt) : <span className="text-red-700">jamais</span>}</td>
                   <td className="px-3 py-2.5 text-right whitespace-nowrap">
-                    <Button size="sm" variant="ghost" disabled={action.busy} onClick={() => invite({ ids: [t.id] }, `à ${t.firstName} ${t.lastName}`)}>
-                      {t.invitedAt ? 'Renvoyer le lien' : 'Inviter'}
+                    <Button size="sm" variant="ghost" disabled={action.busy}
+                      onClick={() => run(() => api('POST', `/api/admin/teachers/${t.id}/link`).then(async (r) => { await copyText(r.url); return r; }),
+                        `Lien de ${t.firstName} ${t.lastName} copié : collez-le dans votre e-mail. L'ancien lien est désactivé.`).then(update)}>
+                      Copier le lien
                     </Button>
+                    {settings?.mailConfigured && (
+                      <Button size="sm" variant="ghost" disabled={action.busy} onClick={() => invite({ ids: [t.id] }, `à ${t.firstName} ${t.lastName}`)}>
+                        {t.invitedAt ? 'Renvoyer' : 'Inviter'}
+                      </Button>
+                    )}
                     <Button size="sm" variant="ghost" className="text-red-700"
                       onClick={() => window.confirm(`Supprimer ${t.firstName} ${t.lastName} et sa fiche ?`) && run(() => api('DELETE', `/api/admin/teachers/${t.id}`)).then(update)}>
                       Supprimer

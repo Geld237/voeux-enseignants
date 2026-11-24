@@ -124,8 +124,8 @@ export default function StepAvailability({ draft, update, config, readOnly, show
       </div>
 
       <Card className="space-y-4 p-5">
-        <label className="flex items-start gap-3 text-sm">
-          <input type="checkbox" className="mt-0.5 size-4 accent-blue-900" checked={!!draft.early8h} disabled={readOnly}
+        <label className="flex flex-row-reverse items-center justify-between gap-4 text-sm">
+          <input type="checkbox" className="ios-switch" checked={!!draft.early8h} disabled={readOnly}
             onChange={(e) => update({ early8h: e.target.checked })} />
           <span>Je peux commencer à <strong>8h00</strong> si nécessaire (au lieu de 8h30).</span>
         </label>

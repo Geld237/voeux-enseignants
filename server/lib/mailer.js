@@ -1,24 +1,22 @@
 /**
- * Envoi d'e-mails. Sans SMTP_HOST (mode démo), les messages ne partent pas :
- * ils sont stockés dans dev_outbox, consultables sur /demo/boite, et affichés dans la console.
+ * Envoi d'e-mails. Sans serveur SMTP configuré (onglet « Réglages » ou .env), les messages ne partent pas :
+ * ils sont stockés dans dev_outbox (boîte d'envoi), et l'équipe peut copier les liens à la main.
  * Dans les deux cas, chaque envoi est tracé dans email_log.
  */
 import nodemailer from 'nodemailer';
 import { db } from '../db/connection.js';
+import { getSetting, mailConfigured } from './settings.js';
 
-export const devMode = !process.env.SMTP_HOST;
-
-let transport = null;
+// Transport recréé à chaque envoi : les réglages peuvent changer pendant que l'application tourne.
 function getTransport() {
-  if (!transport) {
-    transport = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT || 587),
-      secure: Number(process.env.SMTP_PORT) === 465,
-      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-    });
-  }
-  return transport;
+  const port = Number(getSetting('smtpPort') || 587);
+  const user = getSetting('smtpUser');
+  return nodemailer.createTransport({
+    host: getSetting('smtpHost'),
+    port,
+    secure: port === 465,
+    auth: user ? { user, pass: getSetting('smtpPass') || '' } : undefined,
+  });
 }
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -27,14 +25,14 @@ const fmtDate = (iso) => new Date(iso).toLocaleDateString('fr-FR', { day: 'numer
 export async function sendMail({ teacherId = null, kind, to, subject, text, html }) {
   const log = db.prepare('INSERT INTO email_log (teacher_id, kind, recipient, subject, status, error) VALUES (?, ?, ?, ?, ?, ?)');
   try {
-    if (devMode) {
+    if (!mailConfigured()) {
       db.prepare(
         `INSERT INTO dev_outbox (teacher_id, kind, recipient, subject, body_text, body_html)
          VALUES (?, ?, ?, ?, ?, ?)`
       ).run(teacherId, kind, to, subject, text, html ?? null);
-      console.log(`[e-mail démo] ${kind} → ${to} : ${subject}`);
+      console.log(`[e-mail non envoyé — boîte d'envoi] ${kind} → ${to} : ${subject}`);
     } else {
-      await getTransport().sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to, subject, text, html });
+      await getTransport().sendMail({ from: getSetting('mailFrom') || getSetting('smtpUser'), to, subject, text, html });
     }
     log.run(teacherId, kind, to, subject, 'sent', null);
     return true;
@@ -82,4 +80,15 @@ précédemment ; pensez alors à soumettre de nouveau.
 
 L'équipe programme`;
   return { subject, text, html: `<pre style="font-family:inherit;white-space:pre-wrap">${escapeHtml(text)}</pre>` };
+}
+
+/** Envoie un message de test (onglet « Réglages »). Lève une erreur lisible en cas d'échec. */
+export async function sendTestEmail(to) {
+  if (!mailConfigured()) throw new Error('Aucun serveur SMTP renseigné.');
+  await getTransport().sendMail({
+    from: getSetting('mailFrom') || getSetting('smtpUser'),
+    to,
+    subject: 'Test — Vœux et disponibilités',
+    text: 'Ce message confirme que l\'envoi des e-mails fonctionne.',
+  });
 }

@@ -185,3 +185,9 @@ CREATE TABLE IF NOT EXISTS assignments (
   updated_at   TEXT,
   UNIQUE (course_id, type, group_name)
 );
+
+-- Réglages modifiables depuis l'application (onglet « Réglages ») ; priorité sur le fichier .env.
+CREATE TABLE IF NOT EXISTS settings (
+  key    TEXT PRIMARY KEY,
+  value  TEXT
+);

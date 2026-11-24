@@ -4,14 +4,14 @@
  */
 import { Router } from 'express';
 import { db } from '../db/connection.js';
-import { devMode } from '../lib/mailer.js';
+import { demoMode, isDesktop } from '../lib/settings.js';
 import { getCurrentCampaign } from '../lib/responses.js';
 import { inviteTeachers } from '../lib/invitations.js';
 import { reset, seed } from '../db/seed.js';
 
 const router = Router();
-router.get('/status', (_req, res) => res.json({ demo: devMode }));
-router.use((_req, res, next) => (devMode ? next() : res.status(404).json({ error: 'not_found' })));
+router.get('/status', (_req, res) => res.json({ demo: demoMode(), desktop: isDesktop() }));
+router.use((_req, res, next) => (demoMode() ? next() : res.status(404).json({ error: 'not_found' })));
 
 router.get('/outbox', (_req, res) => {
   const emails = db
