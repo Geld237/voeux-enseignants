@@ -1,0 +1,38 @@
+{
+  "name": "voeux-enseignants",
+  "version": "0.3.0",
+  "description": "Collecte des vœux et disponibilités des enseignants avant export vers Hyperplanning",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node --disable-warning=ExperimentalWarning --watch server/index.js",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "seed": "node --disable-warning=ExperimentalWarning server/db/seed.js",
+    "seed:reset": "node --disable-warning=ExperimentalWarning server/db/seed.js --reset",
+    "links": "node --disable-warning=ExperimentalWarning server/scripts/generate-links.js",
+    "test": "node --disable-warning=ExperimentalWarning --test \"server/tests/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^18.0.5",
+    "express": "^5.2.1",
+    "nodemailer": "^10.0.14",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^6.1.1",
+    "concurrently": "^10.0.5",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.2"
+  }
+}

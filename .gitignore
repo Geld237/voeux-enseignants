@@ -1,0 +1,10 @@
+node_modules/
+client/dist/
+data/
+.env
+*.log
+# Fiches réelles (données personnelles) : ne jamais versionner
+Voeux reçus*/
+*.xlsx
+
+.DS_Store
