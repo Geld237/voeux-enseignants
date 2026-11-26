@@ -8,6 +8,8 @@ name: Publier une version
 on:
   push:
     tags: ['v*']
+    branches: [release]   # alternative au tag : pousser sur la branche « release »
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -41,6 +43,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Publier la version
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        run: |
+          VERSION=$(gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=$GITHUB_SHA" --jq .content | base64 -d | jq -r .version)
+          gh release edit "v$VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
